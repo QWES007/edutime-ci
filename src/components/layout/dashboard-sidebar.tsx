@@ -35,8 +35,8 @@ interface DashboardSidebarProps {
 }
 
 export function DashboardSidebar({
-  schoolName = "Lycée Moderne d'Abidjan",
-  userName = "M. Koné",
+  schoolName = "College Forndi",
+  userName = "M. Kouakou kouassi",
 }: DashboardSidebarProps) {
   const pathname = usePathname();
 
