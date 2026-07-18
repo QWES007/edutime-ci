@@ -24,6 +24,7 @@ export default function SignupPage() {
     firstName: "",
     lastName: "",
     schoolName: "",
+    city: "", // <- Ajout de l'état pour la ville
     email: "",
     password: "",
   });
@@ -37,7 +38,6 @@ export default function SignupPage() {
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Sécurité pour s'assurer que le client Supabase est bien initialisé
     if (!supabase) {
       setErrorMsg("Le service d'authentification n'est pas disponible.");
       return;
@@ -56,13 +56,14 @@ export default function SignupPage() {
       if (authError) throw authError;
 
       if (authData?.user) {
-        // 2. Insertion avec bypass de type "as any" pour éviter l'erreur d'assignation strict
+        // 2. Insertion incluant maintenant la ville obligatoire pour la contrainte
         const { error: profileError } = await supabase
           .from("profiles")
           .insert([
             {
               id: authData.user.id,
               school_name: formData.schoolName,
+              city: formData.city, // <- On envoie la ville ici
               contact_name: `${formData.firstName} ${formData.lastName}`,
               subscription_plan: "starter",
             },
@@ -70,7 +71,6 @@ export default function SignupPage() {
 
         if (profileError) throw profileError;
 
-        // Inscription et profil validés -> Direction le tableau de bord
         router.push("/dashboard");
         router.refresh();
       }
@@ -121,16 +121,30 @@ export default function SignupPage() {
                 />
               </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="schoolName">Nom de l&apos;établissement</Label>
-              <Input
-                id="schoolName"
-                placeholder="Lycée Moderne d'Abidjan"
-                value={formData.schoolName}
-                onChange={handleChange}
-                required
-              />
+            
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="schoolName">Nom de l&apos;établissement</Label>
+                <Input
+                  id="schoolName"
+                  placeholder="Lycée Moderne..."
+                  value={formData.schoolName}
+                  onChange={handleChange}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="city">Ville / Localité</Label>
+                <Input
+                  id="city"
+                  placeholder="Abidjan, Bouaké..."
+                  value={formData.city}
+                  onChange={handleChange}
+                  required
+                />
+              </div>
             </div>
+
             <div className="space-y-2">
               <Label htmlFor="email">Adresse e-mail professionnelle</Label>
               <Input
