@@ -36,6 +36,13 @@ export default function SignupPage() {
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Sécurité pour rassurer TypeScript : on s'assure que le client Supabase est bien initialisé
+    if (!supabase) {
+      setErrorMsg("Le service d'authentification n'est pas disponible.");
+      return;
+    }
+
     setLoading(true);
     setErrorMsg("");
 
@@ -52,7 +59,7 @@ export default function SignupPage() {
         // 2. Insertion des informations de l'école dans la table profiles
         const { error: profileError } = await supabase.from("profiles").insert([
           {
-            id: authData.user.id, // Lie le profil à l'utilisateur de sécurité
+            id: authData.user.id, // Lie le profil à l'utilisateur authentifié
             school_name: formData.schoolName,
             contact_name: `${formData.firstName} ${formData.lastName}`,
             subscription_plan: "starter",
@@ -61,7 +68,7 @@ export default function SignupPage() {
 
         if (profileError) throw profileError;
 
-        // Connexion réussie et profil créé -> Direction le tableau de bord
+        // Inscription et profil validés -> Redirection vers l'espace connecté
         router.push("/dashboard");
         router.refresh();
       }
