@@ -63,15 +63,15 @@ export const dataService = {
       });
     }
     const school = await this.getSchool();
-    const { data, error } = await supabase
-      .from("teachers")
+    const { data, error } = await (supabase
+      .from("teachers") as any)
       .insert({
         school_id: school.id,
         name: input.name,
         subjects: input.subjects,
         max_hours_per_week: input.max_hours_per_week ?? 18,
         unavailabilities: input.unavailabilities ?? {},
-      } as any)
+      })
       .select()
       .single();
     if (error) throw error;
@@ -85,9 +85,9 @@ export const dataService = {
     if (isMockMode()) return mockStore.updateTeacher(id, updates);
     const supabase = createClient();
     if (!supabase) return mockStore.updateTeacher(id, updates);
-    const { data, error } = await supabase
-      .from("teachers")
-      .update(updates as any)
+    const { data, error } = await (supabase
+      .from("teachers") as any)
+      .update(updates)
       .eq("id", id)
       .select()
       .single();
@@ -116,9 +116,9 @@ export const dataService = {
     const supabase = createClient();
     if (!supabase) return mockStore.createRoom(input);
     const school = await this.getSchool();
-    const { data, error } = await supabase
-      .from("rooms")
-      .insert({ school_id: school.id, ...input } as any)
+    const { data, error } = await (supabase
+      .from("rooms") as any)
+      .insert({ school_id: school.id, ...input })
       .select()
       .single();
     if (error) throw error;
@@ -141,9 +141,9 @@ export const dataService = {
     const supabase = createClient();
     if (!supabase) return mockStore.createClassGroup(input);
     const school = await this.getSchool();
-    const { data, error } = await supabase
-      .from("classgroups")
-      .insert({ school_id: school.id, ...input } as any)
+    const { data, error } = await (supabase
+      .from("classgroups") as any)
+      .insert({ school_id: school.id, ...input })
       .select()
       .single();
     if (error) throw error;
@@ -187,9 +187,9 @@ export const dataService = {
       .from("timetable_entries")
       .delete()
       .eq("school_id", school.id);
-    const { data, error } = await supabase
-      .from("timetable_entries")
-      .insert(entries.map((e) => ({ ...e, school_id: school.id })) as any)
+    const { data, error } = await (supabase
+      .from("timetable_entries") as any)
+      .insert(entries.map((e) => ({ ...e, school_id: school.id })))
       .select();
     if (error) throw error;
     return data ?? [];
