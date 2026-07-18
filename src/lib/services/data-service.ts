@@ -71,7 +71,7 @@ export const dataService = {
         subjects: input.subjects,
         max_hours_per_week: input.max_hours_per_week ?? 18,
         unavailabilities: input.unavailabilities ?? {},
-      })
+      } as any)
       .select()
       .single();
     if (error) throw error;
@@ -118,7 +118,7 @@ export const dataService = {
     const school = await this.getSchool();
     const { data, error } = await supabase
       .from("rooms")
-      .insert({ school_id: school.id, ...input })
+      .insert({ school_id: school.id, ...input } as any)
       .select()
       .single();
     if (error) throw error;
@@ -143,7 +143,7 @@ export const dataService = {
     const school = await this.getSchool();
     const { data, error } = await supabase
       .from("classgroups")
-      .insert({ school_id: school.id, ...input })
+      .insert({ school_id: school.id, ...input } as any)
       .select()
       .single();
     if (error) throw error;
@@ -189,7 +189,7 @@ export const dataService = {
       .eq("school_id", school.id);
     const { data, error } = await supabase
       .from("timetable_entries")
-      .insert(entries.map((e) => ({ ...e, school_id: school.id })))
+      .insert(entries.map((e) => ({ ...e, school_id: school.id })) as any)
       .select();
     if (error) throw error;
     return data ?? [];
