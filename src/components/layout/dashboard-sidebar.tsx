@@ -10,6 +10,7 @@ import {
   Users,
   DoorOpen,
   BookOpen,
+  ShieldAlert, // On ajoute le bouclier pour le superadmin
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -27,6 +28,7 @@ const navItems = [
   { href: "/dashboard/schedule", label: "Génération", icon: Sparkles },
   { href: "/dashboard/timetable", label: "Emploi du temps", icon: CalendarDays },
   { href: "/dashboard/settings", label: "Paramètres", icon: Settings },
+  { href: "/superadmin", label: "Superadmin", icon: ShieldAlert }, // <- Ton nouveau bouton secret !
 ];
 
 interface DashboardSidebarProps {
