@@ -87,7 +87,7 @@ export const dataService = {
     if (!supabase) return mockStore.updateTeacher(id, updates);
     const { data, error } = await supabase
       .from("teachers")
-      .update(updates)
+      .update(updates as any)
       .eq("id", id)
       .select()
       .single();
