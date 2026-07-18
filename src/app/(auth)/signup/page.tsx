@@ -1,4 +1,9 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -12,6 +17,62 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 export default function SignupPage() {
+  const router = useRouter();
+  const supabase = createClient();
+
+  const [formData, setFormData] = useState({
+    firstName: "",
+    lastName: "",
+    schoolName: "",
+    email: "",
+    password: "",
+  });
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFormData({ ...formData, [e.target.id]: e.target.value });
+  };
+
+  const handleSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setErrorMsg("");
+
+    try {
+      // 1. Création de l'utilisateur dans Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+      });
+
+      if (authError) throw authError;
+
+      if (authData?.user) {
+        // 2. Insertion des informations de l'école dans la table profiles
+        const { error: profileError } = await supabase.from("profiles").insert([
+          {
+            id: authData.user.id, // Lie le profil à l'utilisateur de sécurité
+            school_name: formData.schoolName,
+            contact_name: `${formData.firstName} ${formData.lastName}`,
+            subscription_plan: "starter",
+          },
+        ]);
+
+        if (profileError) throw profileError;
+
+        // Connexion réussie et profil créé -> Direction le tableau de bord
+        router.push("/dashboard");
+        router.refresh();
+      }
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg(err.message || "Une erreur est survenue lors de l'inscription.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-primary/5 via-background to-accent/10 p-6">
       <Card className="w-full max-w-lg shadow-lg">
@@ -22,15 +83,33 @@ export default function SignupPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form className="space-y-4">
+          {errorMsg && (
+            <div className="mb-4 rounded-md bg-destructive/15 p-3 text-sm text-destructive">
+              {errorMsg}
+            </div>
+          )}
+
+          <form onSubmit={handleSignup} className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="firstName">Prénom</Label>
-                <Input id="firstName" placeholder="Amadou" />
+                <Input
+                  id="firstName"
+                  placeholder="Amadou"
+                  value={formData.firstName}
+                  onChange={handleChange}
+                  required
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="lastName">Nom</Label>
-                <Input id="lastName" placeholder="Koné" />
+                <Input
+                  id="lastName"
+                  placeholder="Koné"
+                  value={formData.lastName}
+                  onChange={handleChange}
+                  required
+                />
               </div>
             </div>
             <div className="space-y-2">
@@ -38,6 +117,9 @@ export default function SignupPage() {
               <Input
                 id="schoolName"
                 placeholder="Lycée Moderne d'Abidjan"
+                value={formData.schoolName}
+                onChange={handleChange}
+                required
               />
             </div>
             <div className="space-y-2">
@@ -46,14 +128,24 @@ export default function SignupPage() {
                 id="email"
                 type="email"
                 placeholder="censeur@lycee.ci"
+                value={formData.email}
+                onChange={handleChange}
+                required
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Mot de passe</Label>
-              <Input id="password" type="password" />
+              <Input
+                id="password"
+                type="password"
+                value={formData.password}
+                onChange={handleChange}
+                required
+              />
             </div>
-            <Button className="w-full" asChild>
-              <Link href="/dashboard">Créer mon compte — Essai Starter</Link>
+
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? "Création en cours..." : "Créer mon compte — Essai Starter"}
             </Button>
           </form>
           <p className="text-muted-foreground mt-6 text-center text-sm">
