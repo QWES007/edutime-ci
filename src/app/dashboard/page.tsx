@@ -21,7 +21,6 @@ export default function DashboardPage() {
       if (!supabase) return;
 
       try {
-        // 1. Récupérer l'utilisateur pour avoir le school_id
         const { data: { user } } = await supabase.auth.getUser();
         
         if (user) {
@@ -32,7 +31,6 @@ export default function DashboardPage() {
             .single();
 
           if (profile?.school_id) {
-            // 2. Lancer les comptages réels en parallèle pour cette école
             const [teachersCount, classesCount, roomsCount] = await Promise.all([
               supabase.from("teachers").select("*", { count: "exact", head: true }).eq("school_id", profile.school_id),
               supabase.from("classes").select("*", { count: "exact", head: true }).eq("school_id", profile.school_id),
@@ -43,7 +41,7 @@ export default function DashboardPage() {
               teachers: teachersCount.count || 0,
               classes: classesCount.count || 0,
               rooms: roomsCount.count || 0,
-              slots: 0, // Sera calculé dynamiquement quand les emplois du temps seront générés
+              slots: 0,
             });
           }
         }
@@ -60,9 +58,8 @@ export default function DashboardPage() {
   return (
     <DashboardShell
       title="Tableau de bord"
-      description="Vue d'ensemble de votre établissement — Année scolaire 2025-2026"
+      description="Vue d&apos;ensemble de votre établissement — Année scolaire 2025-2026"
     >
-      {/* Grille des statistiques réelles */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -105,15 +102,14 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* Section d'action pour la génération */}
       <div className="mt-6 grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Génération d'emploi du temps</CardTitle>
+            <CardTitle>Génération d&apos;emploi du temps</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground mb-4">
-              Prêt à lancer l'algorithme ? Assurez-vous d'avoir configuré vos enseignants, classes et salles avant de démarrer.
+              Prêt à lancer l&apos;algorithme ? Assurez-vous d&apos;avoir configuré vos enseignants, classes et salles avant de démarrer.
             </p>
             <button className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">
               Accéder au moteur de génération
