@@ -1,3 +1,6 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import {
   CalendarDays,
   ChevronLeft,
@@ -10,10 +13,11 @@ import {
   Users,
   DoorOpen,
   BookOpen,
-  ShieldAlert, // On ajoute le bouclier pour le superadmin
+  ShieldAlert,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -28,7 +32,7 @@ const navItems = [
   { href: "/dashboard/schedule", label: "Génération", icon: Sparkles },
   { href: "/dashboard/timetable", label: "Emploi du temps", icon: CalendarDays },
   { href: "/dashboard/settings", label: "Paramètres", icon: Settings },
-  { href: "/superadmin", label: "Superadmin", icon: ShieldAlert }, // <- Ton nouveau bouton secret !
+  { href: "/superadmin", label: "Superadmin", icon: ShieldAlert },
 ];
 
 interface DashboardSidebarProps {
@@ -41,6 +45,46 @@ export function DashboardSidebar({
   userName = "M. Kouakou kouassi",
 }: DashboardSidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
+  const supabase = createClient();
+
+  // États pour stocker les vraies informations de la base de données
+  const [liveSchoolName, setLiveSchoolName] = useState(schoolName);
+  const [liveUserName, setLiveUserName] = useState(userName);
+
+  useEffect(() => {
+    async function fetchUserProfile() {
+      if (!supabase) return;
+
+      // 1. Récupérer l'utilisateur connecté
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      
+      if (user && !userError) {
+        // 2. Chercher son profil lié dans la table profiles
+        const { data: profile, error: profileError } = await supabase
+          .from("profiles")
+          .select("school_name, contact_name")
+          .eq("id", user.id)
+          .single();
+
+        if (profile && !profileError) {
+          if (profile.school_name) setLiveSchoolName(profile.school_name);
+          if (profile.contact_name) setLiveUserName(profile.contact_name);
+        }
+      }
+    }
+
+    fetchUserProfile();
+  }, [supabase]);
+
+  // Gérer la déconnexion proprement avec Supabase
+  const handleLogout = async () => {
+    if (supabase) {
+      await supabase.auth.signOut();
+      router.push("/");
+      router.refresh();
+    }
+  };
 
   return (
     <aside className="bg-sidebar text-sidebar-foreground flex h-full w-64 shrink-0 flex-col border-r border-sidebar-border">
@@ -51,7 +95,7 @@ export function DashboardSidebar({
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold">Edutime CI</p>
           <p className="text-sidebar-foreground/70 truncate text-xs">
-            {schoolName}
+            {liveSchoolName}
           </p>
         </div>
       </div>
@@ -87,16 +131,17 @@ export function DashboardSidebar({
         <div className="mb-3 flex items-center gap-3">
           <Avatar className="size-9">
             <AvatarFallback className="bg-sidebar-accent text-sidebar-accent-foreground">
-              {userName
+              {liveUserName
                 .split(" ")
+                .filter(Boolean)
                 .map((n) => n[0])
                 .join("")
                 .slice(0, 2)
-                .toUpperCase()}
+                .toUpperCase() || "ED"}
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium">{userName}</p>
+            <p className="truncate text-sm font-medium">{liveUserName}</p>
             <p className="text-sidebar-foreground/60 truncate text-xs">
               Censeur
             </p>
@@ -106,12 +151,10 @@ export function DashboardSidebar({
           variant="ghost"
           size="sm"
           className="text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground w-full justify-start"
-          asChild
+          onClick={handleLogout}
         >
-          <Link href="/">
-            <LogOut className="size-4" />
-            Déconnexion
-          </Link>
+          <LogOut className="size-4 mr-3" />
+          Déconnexion
         </Button>
       </div>
     </aside>
