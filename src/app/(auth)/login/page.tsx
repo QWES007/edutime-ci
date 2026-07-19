@@ -43,19 +43,16 @@ export default function LoginPage() {
     setErrorMsg("");
 
     try {
-      // APPEL STRICT DE CONNEXION : signInWithPassword
       const { data, error } = await supabase.auth.signInWithPassword({
         email: formData.email,
         password: formData.password,
       });
 
-      // Si Supabase renvoie une erreur (mauvais mot de passe/email), on s'arrête net ici !
       if (error) {
-        throw new Error("Adresse email ou mot de passe incorrect.");
+        throw new Error("Adresse e-mail ou mot de passe incorrect.");
       }
 
       if (data?.user) {
-        // Redirection sécurisée après vérification réussie
         router.push("/dashboard");
         router.refresh();
       }
@@ -71,9 +68,9 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-primary/5 via-background to-accent/10 p-6">
       <Card className="w-full max-w-md shadow-lg">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Connexion à Edutime CI</CardTitle>
+          <CardTitle className="text-2xl">Connexion</CardTitle>
           <CardDescription>
-            Accédez à l'espace de gestion de votre établissement
+            Accédez à l&apos;espace de gestion de votre établissement
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -90,6 +87,7 @@ export default function LoginPage() {
                 id="email"
                 type="email"
                 placeholder="censeur@lycee.ci"
+                autoComplete="email"
                 value={formData.email}
                 onChange={handleChange}
                 required
@@ -101,12 +99,13 @@ export default function LoginPage() {
                 id="password"
                 type="password"
                 placeholder="••••••••"
+                autoComplete="current-password"
                 value={formData.password}
                 onChange={handleChange}
                 required
               />
             </div>
-
+            
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Connexion en cours..." : "Se connecter"}
             </Button>
