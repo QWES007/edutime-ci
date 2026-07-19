@@ -41,8 +41,8 @@ interface DashboardSidebarProps {
 }
 
 export function DashboardSidebar({
-  schoolName = "Chargement...",
-  userName = "Utilisateur",
+  schoolName = "College Forndi",
+  userName = "M. Kouakou kouassi",
 }: DashboardSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -58,30 +58,33 @@ export function DashboardSidebar({
 
     async function fetchUserProfile(userId: string) {
       try {
-        // Ajout du point d'exclamation "supabase!" pour garantir l'existence à TypeScript
+        // Utilisation de maybeSingle() pour ne pas faire planter si la ligne n'existe pas
         const { data: profile, error: profileError } = await supabase!
           .from("profiles")
           .select("school_name, contact_name, is_superadmin")
           .eq("id", userId)
-          .single() as any;
+          .maybeSingle() as any;
 
         if (profile && !profileError) {
           setLiveSchoolName(profile.school_name || "Établissement sans nom");
           setLiveUserName(profile.contact_name || "Censeur");
           setIsSuperAdmin(!!profile.is_superadmin);
         } else {
+          // Si le profil n'existe pas (ex: compte sweetqwes), on prend les valeurs de secours
           setLiveSchoolName(schoolName);
           setLiveUserName(userName);
           setIsSuperAdmin(false);
         }
       } catch (err) {
         console.error("Erreur profil:", err);
+        setLiveSchoolName(schoolName);
+        setLiveUserName(userName);
       } finally {
         setLoading(false);
       }
     }
 
-    // Ajout du point d'exclamation ici aussi pour sécuriser l'appel initial
+    // Récupération initiale de l'utilisateur
     supabase!.auth.getUser().then(({ data: { user } }) => {
       if (user) {
         fetchUserProfile(user.id);
@@ -90,9 +93,10 @@ export function DashboardSidebar({
       }
     });
 
-    // Ajout du point d'exclamation pour l'écouteur d'état
+    // Écoute des changements de session
     const { data: { subscription } } = supabase!.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
+        setLoading(true);
         fetchUserProfile(session.user.id);
       } else {
         setLiveSchoolName("");
@@ -164,15 +168,13 @@ export function DashboardSidebar({
         <div className="mb-3 flex items-center gap-3">
           <Avatar className="size-9">
             <AvatarFallback className="bg-sidebar-accent text-sidebar-accent-foreground">
-              {liveUserName
-                ? liveUserName
-                    .split(" ")
-                    .filter(Boolean)
-                    .map((n) => n[0])
-                    .join("")
-                    .slice(0, 2)
-                    .toUpperCase()
-                : "ED"}
+              {(liveUserName || userName)
+                .split(" ")
+                .filter(Boolean)
+                .map((n) => n[0])
+                .join("")
+                .slice(0, 2)
+                .toUpperCase() || "ED"}
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0 flex-1">
