@@ -48,7 +48,6 @@ export function DashboardSidebar({
   const router = useRouter();
   const supabase = createClient();
 
-  // On initialise avec des valeurs neutres pour éviter que l'ancien compte reste figé à l'écran
   const [liveSchoolName, setLiveSchoolName] = useState("");
   const [liveUserName, setLiveUserName] = useState("");
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
@@ -59,7 +58,8 @@ export function DashboardSidebar({
 
     async function fetchUserProfile(userId: string) {
       try {
-        const { data: profile, error: profileError } = await supabase
+        // Ajout du point d'exclamation "supabase!" pour garantir l'existence à TypeScript
+        const { data: profile, error: profileError } = await supabase!
           .from("profiles")
           .select("school_name, contact_name, is_superadmin")
           .eq("id", userId)
@@ -70,7 +70,6 @@ export function DashboardSidebar({
           setLiveUserName(profile.contact_name || "Censeur");
           setIsSuperAdmin(!!profile.is_superadmin);
         } else {
-          // Fallback si aucun profil n'est trouvé
           setLiveSchoolName(schoolName);
           setLiveUserName(userName);
           setIsSuperAdmin(false);
@@ -82,8 +81,8 @@ export function DashboardSidebar({
       }
     }
 
-    // 1. Charger l'état initial
-    supabase.auth.getUser().then(({ data: { user } }) => {
+    // Ajout du point d'exclamation ici aussi pour sécuriser l'appel initial
+    supabase!.auth.getUser().then(({ data: { user } }) => {
       if (user) {
         fetchUserProfile(user.id);
       } else {
@@ -91,8 +90,8 @@ export function DashboardSidebar({
       }
     });
 
-    // 2. Écouter les changements d'état (connexion/déconnexion) pour réagir instantanément
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    // Ajout du point d'exclamation pour l'écouteur d'état
+    const { data: { subscription } } = supabase!.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
         fetchUserProfile(session.user.id);
       } else {
