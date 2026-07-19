@@ -32,7 +32,7 @@ const navItems = [
   { href: "/dashboard/schedule", label: "Génération", icon: Sparkles },
   { href: "/dashboard/timetable", label: "Emploi du temps", icon: CalendarDays },
   { href: "/dashboard/settings", label: "Paramètres", icon: Settings },
-  { href: "/superadmin", label: "Superadmin", icon: ShieldAlert, isSecret: true }, // <- Marqué comme secret
+  { href: "/superadmin", label: "Superadmin", icon: ShieldAlert, isSecret: true },
 ];
 
 interface DashboardSidebarProps {
@@ -41,41 +41,72 @@ interface DashboardSidebarProps {
 }
 
 export function DashboardSidebar({
-  schoolName = "College Forndi",
-  userName = "M. Kouakou kouassi",
+  schoolName = "Chargement...",
+  userName = "Utilisateur",
 }: DashboardSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClient();
 
-  const [liveSchoolName, setLiveSchoolName] = useState(schoolName);
-  const [liveUserName, setLiveUserName] = useState(userName);
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false); // <- État pour stocker le rôle
+  // On initialise avec des valeurs neutres pour éviter que l'ancien compte reste figé à l'écran
+  const [liveSchoolName, setLiveSchoolName] = useState("");
+  const [liveUserName, setLiveUserName] = useState("");
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function fetchUserProfile() {
-      if (!supabase) return;
+    if (!supabase) return;
 
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      
-      if (user && !userError) {
-        // Ajout de is_superadmin dans la sélection
+    async function fetchUserProfile(userId: string) {
+      try {
         const { data: profile, error: profileError } = await supabase
           .from("profiles")
           .select("school_name, contact_name, is_superadmin")
-          .eq("id", user.id)
+          .eq("id", userId)
           .single() as any;
 
         if (profile && !profileError) {
-          if (profile.school_name) setLiveSchoolName(profile.school_name);
-          if (profile.contact_name) setLiveUserName(profile.contact_name);
-          if (profile.is_superadmin) setIsSuperAdmin(true); // <- Active l'accès si vrai
+          setLiveSchoolName(profile.school_name || "Établissement sans nom");
+          setLiveUserName(profile.contact_name || "Censeur");
+          setIsSuperAdmin(!!profile.is_superadmin);
+        } else {
+          // Fallback si aucun profil n'est trouvé
+          setLiveSchoolName(schoolName);
+          setLiveUserName(userName);
+          setIsSuperAdmin(false);
         }
+      } catch (err) {
+        console.error("Erreur profil:", err);
+      } finally {
+        setLoading(false);
       }
     }
 
-    fetchUserProfile();
-  }, [supabase]);
+    // 1. Charger l'état initial
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) {
+        fetchUserProfile(user.id);
+      } else {
+        setLoading(false);
+      }
+    });
+
+    // 2. Écouter les changements d'état (connexion/déconnexion) pour réagir instantanément
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+        fetchUserProfile(session.user.id);
+      } else {
+        setLiveSchoolName("");
+        setLiveUserName("");
+        setIsSuperAdmin(false);
+        setLoading(false);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [supabase, schoolName, userName]);
 
   const handleLogout = async () => {
     if (supabase) {
@@ -94,7 +125,7 @@ export function DashboardSidebar({
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold">Edutime CI</p>
           <p className="text-sidebar-foreground/70 truncate text-xs">
-            {liveSchoolName}
+            {loading ? "Mise à jour..." : liveSchoolName || schoolName}
           </p>
         </div>
       </div>
@@ -103,7 +134,6 @@ export function DashboardSidebar({
 
       <nav className="flex-1 space-y-1 px-3 py-4">
         {navItems.map((item) => {
-          // Masquer l'élément si c'est un lien secret et que l'utilisateur n'est pas Superadmin
           if (item.isSecret && !isSuperAdmin) {
             return null;
           }
@@ -136,16 +166,20 @@ export function DashboardSidebar({
           <Avatar className="size-9">
             <AvatarFallback className="bg-sidebar-accent text-sidebar-accent-foreground">
               {liveUserName
-                .split(" ")
-                .filter(Boolean)
-                .map((n) => n[0])
-                .join("")
-                .slice(0, 2)
-                .toUpperCase() || "ED"}
+                ? liveUserName
+                    .split(" ")
+                    .filter(Boolean)
+                    .map((n) => n[0])
+                    .join("")
+                    .slice(0, 2)
+                    .toUpperCase()
+                : "ED"}
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium">{liveUserName}</p>
+            <p className="truncate text-sm font-medium">
+              {loading ? "Chargement..." : liveUserName || userName}
+            </p>
             <p className="text-sidebar-foreground/60 truncate text-xs">
               {isSuperAdmin ? "Superadmin" : "Censeur"}
             </p>
