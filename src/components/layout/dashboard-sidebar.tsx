@@ -41,8 +41,8 @@ interface DashboardSidebarProps {
 }
 
 export function DashboardSidebar({
-  schoolName = "College Forndi",
-  userName = "M. Kouakou kouassi",
+  schoolName = "Établissement",
+  userName = "Censeur",
 }: DashboardSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -55,84 +55,75 @@ export function DashboardSidebar({
 
   useEffect(() => {
     if (!supabase) {
-      setLoading(false);
+      router.push("/");
       return;
     }
 
-    async function fetchUserProfile(userId: string) {
+    async function checkAuthAndFetchProfile() {
       try {
-        // Exécution de la requête
-        const response = await supabase!
+        // 1. Vérification stricte de la session utilisateur actuelle
+        const { data: { session }, error: sessionError } = await supabase!.auth.getSession();
+        
+        if (sessionError || !session?.user) {
+          // Si pas de session valide ou erreur, expulsion immédiate vers l'accueil/login
+          console.log("Accès refusé : Aucune session active détectée.");
+          localStorage.clear();
+          sessionStorage.clear();
+          router.push("/");
+          return;
+        }
+
+        const userId = session.user.id;
+
+        // 2. Récupération du profil associé à cet identifiant unique
+        const { data: profile, error: profileError } = await supabase!
           .from("profiles")
           .select("school_name, contact_name, is_superadmin")
           .eq("id", userId)
-          .maybeSingle();
+          .maybeSingle() as any;
 
-        // Si Supabase renvoie une erreur de droits (RLS), on passe directement au bloc catch
-        if (response.error) {
-          throw response.error;
-        }
-
-        const profile = response.data as any;
-
-        if (profile) {
+        if (profile && !profileError) {
           setLiveSchoolName(profile.school_name || "Établissement sans nom");
           setLiveUserName(profile.contact_name || "Censeur");
           setIsSuperAdmin(!!profile.is_superadmin);
         } else {
-          // Aucun profil trouvé pour cet ID (ex: compte sweetqwes)
+          // Si l'utilisateur triche ou si son profil n'a pas été créé
           setLiveSchoolName(schoolName);
           setLiveUserName(userName);
           setIsSuperAdmin(false);
         }
       } catch (err) {
-        console.error("Erreur critique lors de la récup du profil:", err);
-        // En cas d'erreur de la base (RLS ou autre), on force l'affichage des valeurs de secours pour ne pas bloquer l'écran
-        setLiveSchoolName(schoolName);
-        setLiveUserName(userName);
-        setIsSuperAdmin(false);
+        console.error("Erreur critique de sécurité :", err);
+        router.push("/");
       } finally {
         setLoading(false);
       }
     }
 
-    // Récupérer l'utilisateur actuel au chargement
-    supabase!.auth.getUser().then(({ data: { user }, error }) => {
-      if (user && !error) {
-        fetchUserProfile(user.id);
-      } else {
-        setLiveSchoolName(schoolName);
-        setLiveUserName(userName);
-        setIsSuperAdmin(false);
-        setLoading(false);
-      }
-    }).catch(() => {
-      setLiveSchoolName(schoolName);
-      setLiveUserName(userName);
-      setLoading(false);
-    });
+    // Exécuter la vérification de sécurité au montage du composant
+    checkAuthAndFetchProfile();
 
-    // Écouteur de changement d'état de connexion
+    // Écouter en continu les changements d'état (déconnexion depuis un autre onglet, expiration du token)
     const { data: { subscription } } = supabase!.auth.onAuthStateChange((event, session) => {
-      if (session?.user) {
-        setLoading(true);
-        fetchUserProfile(session.user.id);
-      } else {
-        setLiveSchoolName(schoolName);
-        setLiveUserName(userName);
+      if (event === "SIGNED_OUT" || !session) {
+        setLiveSchoolName("");
+        setLiveUserName("");
         setIsSuperAdmin(false);
-        setLoading(false);
+        router.push("/");
+        router.refresh();
       }
     });
 
     return () => {
       subscription.unsubscribe();
     };
-  }, [supabase, schoolName, userName]);
+  }, [supabase, schoolName, userName, router]);
 
   const handleLogout = async () => {
     if (supabase) {
       await supabase.auth.signOut();
+      localStorage.clear();
+      sessionStorage.clear();
       router.push("/");
       router.refresh();
     }
@@ -147,7 +138,7 @@ export function DashboardSidebar({
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold">Edutime CI</p>
           <p className="text-sidebar-foreground/70 truncate text-xs">
-            {loading ? "Mise à jour..." : liveSchoolName || schoolName}
+            {loading ? "Vérification..." : liveSchoolName}
           </p>
         </div>
       </div>
@@ -187,18 +178,20 @@ export function DashboardSidebar({
         <div className="mb-3 flex items-center gap-3">
           <Avatar className="size-9">
             <AvatarFallback className="bg-sidebar-accent text-sidebar-accent-foreground">
-              {(liveUserName || userName)
-                .split(" ")
-                .filter(Boolean)
-                .map((n) => n[0])
-                .join("")
-                .slice(0, 2)
-                .toUpperCase() || "ED"}
+              {liveUserName
+                ? liveUserName
+                    .split(" ")
+                    .filter(Boolean)
+                    .map((n) => n[0])
+                    .join("")
+                    .slice(0, 2)
+                    .toUpperCase()
+                : "ED"}
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium">
-              {loading ? "Chargement..." : liveUserName || userName}
+              {loading ? "Chargement..." : liveUserName}
             </p>
             <p className="text-sidebar-foreground/60 truncate text-xs">
               {isSuperAdmin ? "Superadmin" : "Censeur"}

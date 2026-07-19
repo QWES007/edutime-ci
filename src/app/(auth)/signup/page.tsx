@@ -16,15 +16,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-export default function SignupPage() {
+export default function LoginPage() {
   const router = useRouter();
   const supabase = createClient();
 
   const [formData, setFormData] = useState({
-    firstName: "",
-    lastName: "",
-    schoolName: "",
-    city: "",
     email: "",
     password: "",
   });
@@ -35,7 +31,7 @@ export default function SignupPage() {
     setFormData({ ...formData, [e.target.id]: e.target.value });
   };
 
-  const handleSignup = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!supabase) {
@@ -47,36 +43,25 @@ export default function SignupPage() {
     setErrorMsg("");
 
     try {
-      // 1. Création de l'utilisateur dans Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
+      // Vérification stricte des identifiants auprès de Supabase
+      const { data, error } = await supabase.auth.signInWithPassword({
         email: formData.email,
         password: formData.password,
       });
 
-      if (authError) throw authError;
+      // Si les identifiants sont faux, Supabase renvoie une erreur, on l'intercepte et on bloque !
+      if (error) {
+        throw new Error("Adresse e-mail ou mot de passe incorrect.");
+      }
 
-      if (authData?.user) {
-        // 2. Insertion avec la valeur "free" pour respecter la contrainte de la base
-        const { error: profileError } = await supabase
-          .from("profiles")
-          .insert([
-            {
-              id: authData.user.id,
-              school_name: formData.schoolName,
-              city: formData.city,
-              contact_name: `${formData.firstName} ${formData.lastName}`,
-              subscription_plan: "free", // <- Remplacé "starter" par "free" pour valider la contrainte
-            },
-          ] as any);
-
-        if (profileError) throw profileError;
-
+      if (data?.user) {
+        // Redirection uniquement si la connexion est validée par le serveur
         router.push("/dashboard");
         router.refresh();
       }
     } catch (err: any) {
       console.error(err);
-      setErrorMsg(err.message || "Une erreur est survenue lors de l'inscription.");
+      setErrorMsg(err.message || "Une erreur est survenue lors de la connexion.");
     } finally {
       setLoading(false);
     }
@@ -84,11 +69,11 @@ export default function SignupPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-primary/5 via-background to-accent/10 p-6">
-      <Card className="w-full max-w-lg shadow-lg">
+      <Card className="w-full max-w-md shadow-lg">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Créer votre établissement</CardTitle>
+          <CardTitle className="text-2xl">Connexion</CardTitle>
           <CardDescription>
-            Inscrivez-vous en tant que Censeur ou Directeur des Études
+            Accédez à la console de votre établissement
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -98,59 +83,14 @@ export default function SignupPage() {
             </div>
           )}
 
-          <form onSubmit={handleSignup} className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="firstName">Prénom</Label>
-                <Input
-                  id="firstName"
-                  placeholder="Amadou"
-                  value={formData.firstName}
-                  onChange={handleChange}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="lastName">Nom</Label>
-                <Input
-                  id="lastName"
-                  placeholder="Koné"
-                  value={formData.lastName}
-                  onChange={handleChange}
-                  required
-                />
-              </div>
-            </div>
-            
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="schoolName">Nom de l&apos;établissement</Label>
-                <Input
-                  id="schoolName"
-                  placeholder="Lycée Moderne..."
-                  value={formData.schoolName}
-                  onChange={handleChange}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="city">Ville / Localité</Label>
-                <Input
-                  id="city"
-                  placeholder="Abidjan, Bouaké..."
-                  value={formData.city}
-                  onChange={handleChange}
-                  required
-                />
-              </div>
-            </div>
-
+          <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Adresse e-mail professionnelle</Label>
+              <Label htmlFor="email">Adresse e-mail</Label>
               <Input
                 id="email"
                 type="email"
                 placeholder="censeur@lycee.ci"
+                autoComplete="email"
                 value={formData.email}
                 onChange={handleChange}
                 required
@@ -161,20 +101,23 @@ export default function SignupPage() {
               <Input
                 id="password"
                 type="password"
+                placeholder="••••••••"
+                autoComplete="current-password"
                 value={formData.password}
                 onChange={handleChange}
                 required
               />
             </div>
-
+            
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Création en cours..." : "Créer mon compte — Essai Gratuit"}
+              {loading ? "Connexion en cours..." : "Se connecter"}
             </Button>
           </form>
+          
           <p className="text-muted-foreground mt-6 text-center text-sm">
-            Déjà inscrit ?{" "}
-            <Link href="/login" className="text-primary font-medium hover:underline">
-              Se connecter
+            Pas encore de compte ?{" "}
+            <Link href="/signup" className="text-primary font-medium hover:underline">
+              Créer un établissement
             </Link>
           </p>
         </CardContent>
