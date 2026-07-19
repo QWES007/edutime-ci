@@ -61,7 +61,8 @@ export function DashboardShell({
     <div className="flex min-h-screen">
       <DashboardSidebar />
       <main className="flex flex-1 flex-col overflow-auto">
-        <DashboardHeader title={title} description={description} />
+        {/* Correction ici : ajout de || "" pour sécuriser le type de la description */}
+        <DashboardHeader title={title} description={description || ""} />
         <div className="p-8">{children}</div>
       </main>
     </div>
