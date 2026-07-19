@@ -165,7 +165,7 @@ export default function LandingPage() {
           <div className="lg:col-span-5 flex justify-center">
             <div className="relative w-full max-w-md aspect-[4/3] sm:aspect-square lg:aspect-[4/3] rounded-2xl overflow-hidden shadow-2xl border-4 border-white bg-slate-100 group ring-1 ring-slate-200/50">
               <Image
-                src="/images/eleve-classe.jpg"
+                src="/images/eleve-classe.png"
                 alt="Jeune élève ivoirien écrivant concentré dans sa classe"
                 fill
                 priority
