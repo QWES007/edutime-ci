@@ -54,53 +54,72 @@ export function DashboardSidebar({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!supabase) return;
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
 
     async function fetchUserProfile(userId: string) {
       try {
-        // Utilisation de maybeSingle() pour ne pas faire planter si la ligne n'existe pas
-        const { data: profile, error: profileError } = await supabase!
+        // Exécution de la requête
+        const response = await supabase!
           .from("profiles")
           .select("school_name, contact_name, is_superadmin")
           .eq("id", userId)
-          .maybeSingle() as any;
+          .maybeSingle();
 
-        if (profile && !profileError) {
+        // Si Supabase renvoie une erreur de droits (RLS), on passe directement au bloc catch
+        if (response.error) {
+          throw response.error;
+        }
+
+        const profile = response.data as any;
+
+        if (profile) {
           setLiveSchoolName(profile.school_name || "Établissement sans nom");
           setLiveUserName(profile.contact_name || "Censeur");
           setIsSuperAdmin(!!profile.is_superadmin);
         } else {
-          // Si le profil n'existe pas (ex: compte sweetqwes), on prend les valeurs de secours
+          // Aucun profil trouvé pour cet ID (ex: compte sweetqwes)
           setLiveSchoolName(schoolName);
           setLiveUserName(userName);
           setIsSuperAdmin(false);
         }
       } catch (err) {
-        console.error("Erreur profil:", err);
+        console.error("Erreur critique lors de la récup du profil:", err);
+        // En cas d'erreur de la base (RLS ou autre), on force l'affichage des valeurs de secours pour ne pas bloquer l'écran
         setLiveSchoolName(schoolName);
         setLiveUserName(userName);
+        setIsSuperAdmin(false);
       } finally {
         setLoading(false);
       }
     }
 
-    // Récupération initiale de l'utilisateur
-    supabase!.auth.getUser().then(({ data: { user } }) => {
-      if (user) {
+    // Récupérer l'utilisateur actuel au chargement
+    supabase!.auth.getUser().then(({ data: { user }, error }) => {
+      if (user && !error) {
         fetchUserProfile(user.id);
       } else {
+        setLiveSchoolName(schoolName);
+        setLiveUserName(userName);
+        setIsSuperAdmin(false);
         setLoading(false);
       }
+    }).catch(() => {
+      setLiveSchoolName(schoolName);
+      setLiveUserName(userName);
+      setLoading(false);
     });
 
-    // Écoute des changements de session
+    // Écouteur de changement d'état de connexion
     const { data: { subscription } } = supabase!.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
         setLoading(true);
         fetchUserProfile(session.user.id);
       } else {
-        setLiveSchoolName("");
-        setLiveUserName("");
+        setLiveSchoolName(schoolName);
+        setLiveUserName(userName);
         setIsSuperAdmin(false);
         setLoading(false);
       }
