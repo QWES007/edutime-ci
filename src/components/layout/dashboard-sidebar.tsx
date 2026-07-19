@@ -32,7 +32,7 @@ const navItems = [
   { href: "/dashboard/schedule", label: "Génération", icon: Sparkles },
   { href: "/dashboard/timetable", label: "Emploi du temps", icon: CalendarDays },
   { href: "/dashboard/settings", label: "Paramètres", icon: Settings },
-  { href: "/superadmin", label: "Superadmin", icon: ShieldAlert },
+  { href: "/superadmin", label: "Superadmin", icon: ShieldAlert, isSecret: true }, // <- Marqué comme secret
 ];
 
 interface DashboardSidebarProps {
@@ -48,28 +48,28 @@ export function DashboardSidebar({
   const router = useRouter();
   const supabase = createClient();
 
-  // États pour stocker les vraies informations de la base de données
   const [liveSchoolName, setLiveSchoolName] = useState(schoolName);
   const [liveUserName, setLiveUserName] = useState(userName);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false); // <- État pour stocker le rôle
 
   useEffect(() => {
     async function fetchUserProfile() {
       if (!supabase) return;
 
-      // 1. Récupérer l'utilisateur connecté
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       
       if (user && !userError) {
-        // 2. Chercher son profil lié avec un cast 'as any' pour éviter l'erreur de build
+        // Ajout de is_superadmin dans la sélection
         const { data: profile, error: profileError } = await supabase
           .from("profiles")
-          .select("school_name, contact_name")
+          .select("school_name, contact_name, is_superadmin")
           .eq("id", user.id)
           .single() as any;
 
         if (profile && !profileError) {
           if (profile.school_name) setLiveSchoolName(profile.school_name);
           if (profile.contact_name) setLiveUserName(profile.contact_name);
+          if (profile.is_superadmin) setIsSuperAdmin(true); // <- Active l'accès si vrai
         }
       }
     }
@@ -77,7 +77,6 @@ export function DashboardSidebar({
     fetchUserProfile();
   }, [supabase]);
 
-  // Gérer la déconnexion proprement avec Supabase
   const handleLogout = async () => {
     if (supabase) {
       await supabase.auth.signOut();
@@ -104,6 +103,11 @@ export function DashboardSidebar({
 
       <nav className="flex-1 space-y-1 px-3 py-4">
         {navItems.map((item) => {
+          // Masquer l'élément si c'est un lien secret et que l'utilisateur n'est pas Superadmin
+          if (item.isSecret && !isSuperAdmin) {
+            return null;
+          }
+
           const isActive =
             pathname === item.href ||
             (item.href !== "/dashboard" && pathname.startsWith(item.href));
@@ -143,7 +147,7 @@ export function DashboardSidebar({
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium">{liveUserName}</p>
             <p className="text-sidebar-foreground/60 truncate text-xs">
-              Censeur
+              {isSuperAdmin ? "Superadmin" : "Censeur"}
             </p>
           </div>
         </div>
