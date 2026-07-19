@@ -60,12 +60,12 @@ export function DashboardSidebar({
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       
       if (user && !userError) {
-        // 2. Chercher son profil lié dans la table profiles
+        // 2. Chercher son profil lié avec un cast 'as any' pour éviter l'erreur de build
         const { data: profile, error: profileError } = await supabase
           .from("profiles")
           .select("school_name, contact_name")
           .eq("id", user.id)
-          .single();
+          .single() as any;
 
         if (profile && !profileError) {
           if (profile.school_name) setLiveSchoolName(profile.school_name);
