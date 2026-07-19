@@ -24,7 +24,7 @@ export default function SignupPage() {
     firstName: "",
     lastName: "",
     schoolName: "",
-    city: "", // <- Ajout de l'état pour la ville
+    city: "",
     email: "",
     password: "",
   });
@@ -56,16 +56,16 @@ export default function SignupPage() {
       if (authError) throw authError;
 
       if (authData?.user) {
-        // 2. Insertion incluant maintenant la ville obligatoire pour la contrainte
+        // 2. Insertion avec la valeur "free" pour respecter la contrainte de la base
         const { error: profileError } = await supabase
           .from("profiles")
           .insert([
             {
               id: authData.user.id,
               school_name: formData.schoolName,
-              city: formData.city, // <- On envoie la ville ici
+              city: formData.city,
               contact_name: `${formData.firstName} ${formData.lastName}`,
-              subscription_plan: "starter",
+              subscription_plan: "free", // <- Remplacé "starter" par "free" pour valider la contrainte
             },
           ] as any);
 
@@ -168,7 +168,7 @@ export default function SignupPage() {
             </div>
 
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Création en cours..." : "Créer mon compte — Essai Starter"}
+              {loading ? "Création en cours..." : "Créer mon compte — Essai Gratuit"}
             </Button>
           </form>
           <p className="text-muted-foreground mt-6 text-center text-sm">
