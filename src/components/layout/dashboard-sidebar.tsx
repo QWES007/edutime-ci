@@ -30,7 +30,6 @@ export function DashboardSidebar() {
   const [isImpersonating, setIsImpersonating] = useState(false);
 
   useEffect(() => {
-    // 1. Détection du mode infiltration
     const impersonating = localStorage.getItem("edutime_is_impersonating") === "true";
     setIsImpersonating(impersonating);
 
@@ -45,7 +44,6 @@ export function DashboardSidebar() {
     }
   }, [pathname]);
 
-  // Étape 2 : Quitter l'infiltration et retourner au Super Admin proprement
   const handleStopImpersonation = () => {
     const adminProfile = {
       schoolName: "Console Super Admin",
@@ -71,10 +69,10 @@ export function DashboardSidebar() {
   };
 
   return (
-    <div className="flex flex-col h-screen">
-      {/* BANDEAU ORANGE D'INFILTRATION INTERCEPTÉ EN HAUT */}
+    <>
+      {/* LE BANDEAU ORANGE PASSE EN POSITION ABSOLUE/FIXE POUR NE PLUS POUSSER LE LAYOUT */}
       {isImpersonating && (
-        <div className="bg-amber-500 text-slate-950 font-bold text-xs py-2 px-6 flex items-center justify-between shadow-md w-full animate-in fade-in duration-200">
+        <div className="fixed top-0 left-0 right-0 h-10 bg-amber-500 text-slate-950 font-bold text-xs px-6 flex items-center justify-between shadow-md z-50">
           <div className="flex items-center gap-2">
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-slate-950 opacity-75"></span>
@@ -84,15 +82,19 @@ export function DashboardSidebar() {
           </div>
           <button 
             onClick={handleStopImpersonation}
-            className="bg-[#0f172a] hover:bg-slate-800 text-white font-bold text-[10px] uppercase tracking-wider px-3 py-1.5 rounded-lg cursor-pointer transition-colors"
+            className="bg-[#0f172a] hover:bg-slate-800 text-white font-bold text-[10px] uppercase tracking-wider px-3 py-1 transition-colors rounded-md"
           >
             &larr; Quitter et retourner au Super Admin
           </button>
         </div>
       )}
 
-      {/* Reste de la Sidebar Layout Standard */}
-      <div className="flex-1 flex bg-[#0f172a] text-slate-100 p-4 flex-col justify-between border-r border-[#1e293b]">
+      {/* LA SIDEBAR REPREND SA HAUTEUR PROPRE SANS SUBIR DE DÉFORMATION */}
+      <div 
+        className={`w-64 bg-[#0f172a] text-slate-100 p-4 flex flex-col justify-between border-r border-[#1e293b] min-h-screen ${
+          isImpersonating ? "pt-14" : ""
+        }`}
+      >
         <div className="space-y-6">
           {/* Badge Profil Établissement Dynamique */}
           <div className="bg-slate-950/60 border border-[#1e293b]/40 p-3 rounded-lg flex items-center gap-2.5">
@@ -107,29 +109,28 @@ export function DashboardSidebar() {
 
           {/* Navigation */}
           <nav className="space-y-1">
-            <Link href="/dashboard" className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold ${pathname === "/dashboard" ? "bg-sky-500 text-[#0f172a]" : "text-slate-400 hover:text-white"}`}>
+            <Link href="/dashboard" className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${pathname === "/dashboard" ? "bg-sky-500 text-[#0f172a] font-bold" : "text-slate-400 hover:text-white"}`}>
               <LayoutDashboard className="w-4 h-4" /> Tableau de bord
             </Link>
-            <Link href="/dashboard/teachers" className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold ${pathname === "/dashboard/teachers" ? "bg-sky-500 text-[#0f172a]" : "text-slate-400 hover:text-white"}`}>
+            <Link href="/dashboard/teachers" className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${pathname === "/dashboard/teachers" ? "bg-sky-500 text-[#0f172a] font-bold" : "text-slate-400 hover:text-white"}`}>
               <Users className="w-4 h-4" /> Enseignants
             </Link>
-            <Link href="/dashboard/classes" className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold ${pathname === "/dashboard/classes" ? "bg-sky-500 text-[#0f172a]" : "text-slate-400 hover:text-white"}`}>
+            <Link href="/dashboard/classes" className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${pathname === "/dashboard/classes" ? "bg-sky-500 text-[#0f172a] font-bold" : "text-slate-400 hover:text-white"}`}>
               <Layers className="w-4 h-4" /> Classes
             </Link>
-            <Link href="/dashboard/rooms" className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold ${pathname === "/dashboard/rooms" ? "bg-sky-500 text-[#0f172a]" : "text-slate-400 hover:text-white"}`}>
+            <Link href="/dashboard/rooms" className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${pathname === "/dashboard/rooms" ? "bg-sky-500 text-[#0f172a] font-bold" : "text-slate-400 hover:text-white"}`}>
               <Home className="w-4 h-4" /> Salles
             </Link>
-            <Link href="/dashboard/schedule" className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold ${pathname === "/dashboard/schedule" ? "bg-sky-500 text-[#0f172a]" : "text-slate-400 hover:text-white"}`}>
+            <Link href="/dashboard/schedule" className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${pathname === "/dashboard/schedule" ? "bg-sky-500 text-[#0f172a] font-bold" : "text-slate-400 hover:text-white"}`}>
               <Sparkles className="w-4 h-4" /> Génération
             </Link>
-            <Link href="/dashboard/timetable" className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold ${pathname === "/dashboard/timetable" ? "bg-sky-500 text-[#0f172a]" : "text-slate-400 hover:text-white"}`}>
+            <Link href="/dashboard/timetable" className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${pathname === "/dashboard/timetable" ? "bg-sky-500 text-[#0f172a] font-bold" : "text-slate-400 hover:text-white"}`}>
               <CalendarDays className="w-4 h-4" /> Emploi du temps
             </Link>
-            <Link href="/dashboard/settings" className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold ${pathname === "/dashboard/settings" ? "bg-sky-500 text-[#0f172a]" : "text-slate-400 hover:text-white"}`}>
+            <Link href="/dashboard/settings" className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${pathname === "/dashboard/settings" ? "bg-sky-500 text-[#0f172a] font-bold" : "text-slate-400 hover:text-white"}`}>
               <Settings className="w-4 h-4" /> Paramètres
             </Link>
 
-            {/* Accès Superadmin visible uniquement si le compte l'est authentiquement */}
             {schoolData.isSuperAdmin && (
               <Link href="/superadmin" className="flex items-center gap-2.5 px-3 py-2 mt-4 rounded-lg text-xs font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
                 <ShieldCheck className="w-4 h-4" /> Superadmin
@@ -139,20 +140,19 @@ export function DashboardSidebar() {
         </div>
 
         {/* Pied de la Sidebar */}
-        <button onClick={handleLogout} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-rose-400 hover:bg-rose-500/10">
+        <button onClick={handleLogout} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-rose-400 hover:bg-rose-500/10 transition-colors">
           <LogOut className="w-4 h-4" /> Déconnexion
         </button>
       </div>
-    </div>
+    </>
   );
 }
 
-// Composant Helper d'en-tête pour tes sous-pages
 export function DashboardHeader({ title, description }: { title: string; description: string }) {
   return (
     <div className="border-b pb-4">
       <h2 className="text-2xl font-black tracking-tight text-foreground">{title}</h2>
-      <p className="text-xs text-muted-foreground font-medium mt-1">{description}</p>
+      {description && <p className="text-xs text-muted-foreground font-medium mt-1">{description}</p>}
     </div>
   );
 }
