@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Layers, Plus, FileSpreadsheet, Upload, Trash2, Save, Clock, BookOpen, ChevronRight } from "lucide-react";
+import { Layers, Plus, FileSpreadsheet, Upload, Trash2, Save, Clock, BookOpen, ChevronRight, RotateCcw } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import * as XLSX from "xlsx";
 
 interface ClassGroup {
   id: string;
@@ -19,7 +20,7 @@ const NIVEAUX_MENA = [
   "Tle A1", "Tle A2", "Tle C", "Tle D"
 ];
 
-// Matrice officielle exacte extraite de la circulaire MENA 2023-2024
+// Matrice officielle exacte (Circulaire N° 272/MENA/DPFC)
 const DEFAULT_MENA_HOURS: Record<string, Record<string, number>> = {
   "6ème": { "FR": 5, "MATHS": 4, "ANG": 3, "HG": 2, "SVT": 1.5, "PC": 1.5, "EPS": 2, "EDHC": 1, "ARTS": 1 },
   "5ème": { "FR": 5, "MATHS": 4, "ANG": 3, "HG": 2, "SVT": 1.5, "PC": 1.5, "EPS": 2, "EDHC": 1, "ARTS": 1 },
@@ -38,7 +39,6 @@ const DEFAULT_MENA_HOURS: Record<string, Record<string, number>> = {
 };
 
 const ALL_SUBJECTS = ["FR", "MATHS", "ANG", "LV2", "HG", "SVT", "PC", "PHILO", "EPS", "EDHC", "ARTS"];
-
 const LOCAL_STORAGE_KEY = "edutime_classes_list";
 
 export default function ClassesPage() {
@@ -138,29 +138,38 @@ export default function ClassesPage() {
     );
   };
 
+  // Traitement Excel / CSV universel avec la bibliothèque XLSX
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
     reader.onload = (evt) => {
-      const text = evt.target?.result as string;
-      if (!text) return;
+      try {
+        const data = new Uint8Array(evt.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: "array" });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        
+        // Convertir la feuille en tableau JSON
+        const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1 });
+        const newClasses: ClassGroup[] = [];
 
-      const lines = text.split(/\r\n|\n/);
-      const newClasses: ClassGroup[] = [];
+        jsonData.forEach((row: any, index: number) => {
+          if (index === 0) return; // Ignorer l'en-tête
+          if (!row || row.length === 0) return;
 
-      lines.forEach((line, index) => {
-        if (index === 0 && (line.toLowerCase().includes("nom") || line.toLowerCase().includes("niveau"))) return;
-        if (!line.trim()) return;
+          const className = row[0]?.toString().trim();
+          let classLevel = row[1]?.toString().trim();
+          const count = parseInt(row[2]?.toString().trim() || "40", 10);
 
-        const columns = line.split(/[,;]/);
-        if (columns.length >= 2) {
-          const className = columns[0].trim().replace(/^["']|["']$/g, "");
-          const classLevel = columns[1].trim().replace(/^["']|["']$/g, "");
-          const count = columns[2] ? parseInt(columns[2].trim(), 10) : 40;
+          if (className) {
+            // Détection automatique ou fallback du niveau MENA
+            if (!classLevel || !DEFAULT_MENA_HOURS[classLevel]) {
+              const matchedLevel = NIVEAUX_MENA.find((n) => className.toLowerCase().includes(n.toLowerCase()));
+              classLevel = matchedLevel || "6ème";
+            }
 
-          if (className && classLevel) {
             newClasses.push({
               id: Date.now().toString() + Math.random().toString().slice(2, 6),
               name: className,
@@ -169,17 +178,32 @@ export default function ClassesPage() {
               subjectHours: DEFAULT_MENA_HOURS[classLevel] || DEFAULT_MENA_HOURS["6ème"],
             });
           }
-        }
-      });
+        });
 
-      if (newClasses.length > 0) {
-        setClasses((prev) => [...newClasses, ...prev]);
-        setSelectedClassId(newClasses[0].id);
-        setEntryMode("manual");
+        if (newClasses.length > 0) {
+          setClasses((prev) => [...newClasses, ...prev]);
+          setSelectedClassId(newClasses[0].id);
+          setEntryMode("manual");
+          alert(`${newClasses.length} classe(s) importée(s) avec succès !`);
+        } else {
+          alert("Aucune classe valide trouvée. Vérifiez la structure de votre fichier (Colonne A: Nom, Colonne B: Niveau, Colonne C: Effectif).");
+        }
+      } catch (err) {
+        console.error("Erreur de lecture du fichier Excel", err);
+        alert("Erreur lors de la lecture du fichier Excel. Assurez-vous d'utiliser un fichier .xlsx, .xls ou .csv valide.");
       }
     };
 
-    reader.readAsText(file);
+    reader.readAsArrayBuffer(file);
+  };
+
+  // Réinitialiser / Tout vider
+  const handleResetAllClasses = () => {
+    if (confirm("Êtes-vous sûr de vouloir tout effacer ? Toutes les classes de la liste seront supprimées.")) {
+      setClasses([]);
+      setSelectedClassId(null);
+      localStorage.removeItem(LOCAL_STORAGE_KEY);
+    }
   };
 
   const selectedClass = classes.find((c) => c.id === selectedClassId);
@@ -195,7 +219,7 @@ export default function ClassesPage() {
           Divisions & Classes
         </h1>
         <p className="text-xs text-slate-400 mt-1">
-          Horaires officiels MENA (Circulaire N° 272/MENA/DPFC)
+          Horaires officiels MENA (Circulaire N° 272/MENA/DPFC)[cite: 1]
         </p>
       </div>
 
@@ -235,16 +259,16 @@ export default function ClassesPage() {
                 <div className="border-2 border-dashed border-emerald-300 bg-emerald-50/50 rounded-xl p-6 text-center flex flex-col items-center justify-center gap-2 transition-all hover:bg-emerald-50 cursor-pointer relative">
                   <input
                     type="file"
-                    accept=".csv, .txt, .xlsx, .xls"
+                    accept=".xlsx, .xls, .csv"
                     onChange={handleFileUpload}
                     className="absolute inset-0 opacity-0 cursor-pointer"
                   />
                   <Upload className="size-8 text-emerald-600" />
                   <p className="text-xs font-bold text-slate-800">
-                    Déposez votre fichier d&apos;import des classes ici
+                    Déposez votre fichier Excel / CSV ici
                   </p>
                   <p className="text-[10px] text-slate-500 font-medium">
-                    Colonnes : Intitulé Classe, Niveau, Effectif élèves
+                    Formats acceptés : .xlsx, .xls, .csv (Nom, Niveau, Effectif)
                   </p>
                 </div>
               </div>
@@ -339,14 +363,28 @@ export default function ClassesPage() {
             )}
           </Card>
 
+          {/* Liste des classes avec BOUTON RÉINITIALISER */}
           <Card className="bg-slate-900 border-slate-800 p-4 text-slate-200">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
                 Classes configurées ({classes.length})
               </h3>
-              <span className="text-[10px] text-emerald-400 font-medium flex items-center gap-1">
-                <Save className="size-3" /> Sauvegarde auto
-              </span>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleResetAllClasses}
+                  className="text-[10px] text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 px-2 py-1 rounded-md font-bold transition-all flex items-center gap-1 cursor-pointer"
+                  title="Tout effacer pour réimporter propre"
+                >
+                  <RotateCcw className="size-3" />
+                  Réinitialiser
+                </button>
+
+                <span className="text-[10px] text-emerald-400 font-medium flex items-center gap-1">
+                  <Save className="size-3" /> Auto
+                </span>
+              </div>
             </div>
 
             <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
