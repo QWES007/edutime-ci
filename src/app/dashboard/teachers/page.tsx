@@ -54,22 +54,10 @@ export default function TeachersPage() {
 
   useEffect(() => {
     const loadTeachersData = async () => {
-      const savedLocal = localStorage.getItem(STORAGE_KEY);
-      if (savedLocal !== null) {
-        try {
-          const parsed = JSON.parse(savedLocal);
-          setTeachers(parsed);
-          if (parsed.length > 0) setSelectedTeacherId(parsed[0].id);
-          setIsInitialized(true);
-          return;
-        } catch (e) {
-          console.error("Erreur de lecture du localStorage enseignants :", e);
-        }
-      }
-
       if (supabase) {
         try {
-          const { data, error } = await (supabase.from("teachers" as any) as any)
+          const { data, error } = await supabase
+            .from("teachers")
             .select("*")
             .order("name", { ascending: true });
 
@@ -81,43 +69,32 @@ export default function TeachersPage() {
             return;
           }
         } catch (e) {
-          console.log("Supabase teachers non disponible ou vide", e);
+          console.log("Supabase non disponible :", e);
         }
       }
 
-      const initial: Teacher[] = [
-        { id: "t1", name: "M. Kouassi Koffi", subject: "MATHS", weekly_hours: 18, unavailabilities: {} },
-        { id: "t2", name: "Mme Koné Aminata", subject: "MATHS", weekly_hours: 18, unavailabilities: {} },
-        { id: "t3", name: "M. Gomez Paul", subject: "FR, PHILO", weekly_hours: 21, unavailabilities: { "Mardi-A1": "indisponible" } },
-      ];
-      setTeachers(initial);
-      setSelectedTeacherId("t1");
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(initial));
+      const savedLocal = localStorage.getItem(STORAGE_KEY);
+      if (savedLocal !== null) {
+        try {
+          const parsed = JSON.parse(savedLocal);
+          setTeachers(parsed);
+          if (parsed.length > 0) setSelectedTeacherId(parsed[0].id);
+        } catch (e) {
+          console.error(e);
+        }
+      }
       setIsInitialized(true);
     };
 
     loadTeachersData();
   }, []);
 
-  const persistTeachers = async (updated: Teacher[]) => {
-    setTeachers(updated);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-
-    if (supabase) {
-      try {
-        await (supabase.from("teachers" as any) as any).upsert(updated);
-      } catch (e) {
-        console.error("Erreur Supabase Teachers :", e);
-      }
-    }
-  };
-
-  const handleAddTeacher = (e: React.FormEvent) => {
+  const handleAddTeacher = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !subject) return;
 
     const newTeacher: Teacher = {
-      id: `t_${Date.now()}`,
+      id: crypto.randomUUID(),
       name,
       subject: subject.toUpperCase(),
       weekly_hours: Number(weeklyHours),
@@ -125,8 +102,13 @@ export default function TeachersPage() {
     };
 
     const updated = [...teachers, newTeacher];
-    persistTeachers(updated);
+    setTeachers(updated);
     setSelectedTeacherId(newTeacher.id);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+
+    if (supabase) {
+      await supabase.from("teachers").insert([newTeacher]);
+    }
 
     setName("");
     setSubject("");
@@ -138,7 +120,7 @@ export default function TeachersPage() {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (evt) => {
+    reader.onload = async (evt) => {
       try {
         const bstr = evt.target?.result;
         const wb = XLSX.read(bstr, { type: "binary" });
@@ -148,8 +130,8 @@ export default function TeachersPage() {
 
         const importedTeachers: Teacher[] = data
           .filter((row) => row.Nom || row.Teacher || row.Enseignant)
-          .map((row, index) => ({
-            id: `t_excel_${Date.now()}_${index}`,
+          .map((row) => ({
+            id: crypto.randomUUID(),
             name: String(row.Nom || row.Teacher || row.Enseignant).trim(),
             subject: String(row.Discipline || row.Matiere || row.Subject || "MATHS").trim().toUpperCase(),
             weekly_hours: Number(row.Heures || row.Volume || row.Hours) || 18,
@@ -157,56 +139,55 @@ export default function TeachersPage() {
           }));
 
         if (importedTeachers.length === 0) {
-          alert("Aucun enseignant valide trouvé. Vérifiez les colonnes 'Nom', 'Discipline', 'Heures'.");
+          alert("Aucun enseignant valide trouvé.");
           return;
         }
 
         const merged = [...teachers, ...importedTeachers];
-        persistTeachers(merged);
+        setTeachers(merged);
         if (importedTeachers.length > 0) setSelectedTeacherId(importedTeachers[0].id);
-        alert(`${importedTeachers.length} enseignant(s) importé(s) et sauvegardé(s) avec succès !`);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+
+        if (supabase) {
+          await supabase.from("teachers").insert(importedTeachers);
+        }
+
+        alert(`${importedTeachers.length} enseignant(s) importé(s) !`);
         setInsertMode("manual");
       } catch (err) {
         console.error(err);
-        alert("Erreur lors de la lecture du fichier Excel.");
       }
     };
     reader.readAsBinaryString(file);
   };
 
-  const handleDeleteTeacher = (id: string) => {
+  const handleDeleteTeacher = async (id: string) => {
     const updated = teachers.filter((t) => t.id !== id);
-    persistTeachers(updated);
+    setTeachers(updated);
     if (selectedTeacherId === id) {
       setSelectedTeacherId(updated.length > 0 ? updated[0].id : null);
     }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 
     if (supabase) {
-      try {
-        (supabase.from("teachers" as any) as any).delete().eq("id", id);
-      } catch (e) {
-        console.error(e);
-      }
+      await supabase.from("teachers").delete().eq("id", id);
     }
   };
 
-  const handleResetTeachers = () => {
+  // REINITIALISATION DEFAILLANCE CORRIGEE
+  const handleResetTeachers = async () => {
     if (confirm("Attention : Voulez-vous vraiment TOUT effacer pour les enseignants ?")) {
       setTeachers([]);
       setSelectedTeacherId(null);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+      localStorage.removeItem(STORAGE_KEY);
 
       if (supabase) {
-        try {
-          (supabase.from("teachers" as any) as any).delete().neq("id", "0");
-        } catch (e) {
-          console.error(e);
-        }
+        await supabase.from("teachers").delete().gte("weekly_hours", 0);
       }
     }
   };
 
-  const handleSlotClick = (day: string, slotId: string) => {
+  const handleSlotClick = async (day: string, slotId: string) => {
     if (!selectedTeacherId) return;
 
     const slotKey = `${day}-${slotId}`;
@@ -217,32 +198,29 @@ export default function TeachersPage() {
       const currentStatus = currentUnavail[slotKey];
 
       let newStatus: string | undefined;
-      if (!currentStatus) {
-        newStatus = "indisponible";
-      } else if (currentStatus === "indisponible") {
-        newStatus = "ce_up";
-      } else {
-        newStatus = undefined;
-      }
+      if (!currentStatus) newStatus = "indisponible";
+      else if (currentStatus === "indisponible") newStatus = "ce_up";
+      else newStatus = undefined;
 
       const newUnavail = { ...currentUnavail };
-      if (newStatus) {
-        newUnavail[slotKey] = newStatus;
-      } else {
-        delete newUnavail[slotKey];
-      }
+      if (newStatus) newUnavail[slotKey] = newStatus;
+      else delete newUnavail[slotKey];
 
       return { ...t, unavailabilities: newUnavail };
     });
 
-    persistTeachers(updatedTeachers);
+    setTeachers(updatedTeachers);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedTeachers));
+
+    if (supabase) {
+      const selected = updatedTeachers.find((t) => t.id === selectedTeacherId);
+      await supabase.from("teachers").update({ unavailabilities: selected?.unavailabilities }).eq("id", selectedTeacherId);
+    }
   };
 
   const selectedTeacher = teachers.find((t) => t.id === selectedTeacherId);
 
-  if (!isInitialized) {
-    return <div className="p-8 text-xs text-slate-400">Chargement des enseignants...</div>;
-  }
+  if (!isInitialized) return <div className="p-8 text-xs text-slate-400">Chargement...</div>;
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
@@ -267,7 +245,7 @@ export default function TeachersPage() {
                     size="sm" 
                     variant="outline" 
                     onClick={handleResetTeachers}
-                    className="text-[10px] h-7 gap-1 text-rose-500 border-rose-200 hover:bg-rose-50"
+                    className="text-[10px] h-7 gap-1 text-rose-500 border-rose-200 hover:bg-rose-50 cursor-pointer"
                   >
                     <RotateCcw className="size-3" /> Réinitialiser
                   </Button>
@@ -380,7 +358,7 @@ export default function TeachersPage() {
                       e.stopPropagation();
                       handleDeleteTeacher(t.id);
                     }}
-                    className="text-slate-400 hover:text-rose-600 size-7 p-0"
+                    className="text-slate-400 hover:text-rose-600 size-7 p-0 cursor-pointer"
                   >
                     <Trash2 className="size-4" />
                   </Button>

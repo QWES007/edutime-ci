@@ -28,7 +28,6 @@ export default function RoomsPage() {
   const [insertMode, setInsertMode] = useState<"manual" | "excel">("manual");
   const [isInitialized, setIsInitialized] = useState(false);
 
-  // 1. Chargement au démarrage : Priorité à Supabase puis au LocalStorage
   useEffect(() => {
     const loadRoomsData = async () => {
       if (supabase) {
@@ -45,60 +44,46 @@ export default function RoomsPage() {
             return;
           }
         } catch (e) {
-          console.log("Supabase non disponible ou vide :", e);
+          console.log("Supabase non disponible :", e);
         }
       }
 
       const savedLocal = localStorage.getItem(STORAGE_KEY);
       if (savedLocal !== null) {
         try {
-          const parsed = JSON.parse(savedLocal);
-          setRooms(parsed);
-          setIsInitialized(true);
-          return;
+          setRooms(JSON.parse(savedLocal));
         } catch (e) {
-          console.error("Erreur de lecture du localStorage :", e);
+          console.error(e);
         }
       }
-
-      setRooms([]);
       setIsInitialized(true);
     };
 
     loadRoomsData();
   }, []);
 
-  // 2. Ajout Manuel avec UUID compatible Supabase
   const handleAddRoom = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!roomName.trim()) return;
 
     const newRoom: Room = {
-      id: crypto.randomUUID(), // Génère un UUID valide pour Supabase
+      id: crypto.randomUUID(),
       name: roomName.trim(),
       type: roomType,
       capacity: Number(capacity),
     };
 
-    // Sauvegarde Locale instantanée
     const updated = [newRoom, ...rooms];
     setRooms(updated);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 
-    // Insertion Supabase
     if (supabase) {
-      const { error } = await supabase.from("rooms").insert([newRoom]);
-      if (error) {
-        console.error("Erreur d'insertion Supabase Rooms :", error.message);
-      } else {
-        console.log("Salle enregistrée avec succès dans Supabase !");
-      }
+      await supabase.from("rooms").insert([newRoom]);
     }
 
     setRoomName("");
   };
 
-  // 3. Importation Excel avec UUIDs compatibles Supabase
   const handleExcelImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -115,14 +100,14 @@ export default function RoomsPage() {
         const importedRooms: Room[] = data
           .filter((row) => row.Salle || row.Nom)
           .map((row) => ({
-            id: crypto.randomUUID(), // UUID valide pour chaque salle
+            id: crypto.randomUUID(),
             name: String(row.Salle || row.Nom).trim(),
             type: String(row.Type || "Standard").trim(),
             capacity: Number(row.Capacite || row.Capacité || row.Places) || 50,
           }));
 
         if (importedRooms.length === 0) {
-          alert("Aucun local valide trouvé. Vérifiez les colonnes 'Salle' et 'Capacité'.");
+          alert("Aucun local valide trouvé.");
           return;
         }
 
@@ -131,54 +116,44 @@ export default function RoomsPage() {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
 
         if (supabase) {
-          const { error } = await supabase.from("rooms").insert(importedRooms);
-          if (error) {
-            console.error("Erreur d'insertion Supabase Excel :", error.message);
-          } else {
-            console.log(`${importedRooms.length} salle(s) insérée(s) dans Supabase !`);
-          }
+          await supabase.from("rooms").insert(importedRooms);
         }
 
-        alert(`${importedRooms.length} salle(s) importée(s) avec succès !`);
+        alert(`${importedRooms.length} salle(s) importée(s) !`);
         setInsertMode("manual");
       } catch (err) {
         console.error(err);
-        alert("Erreur lors de l'importation du fichier Excel.");
       }
     };
     reader.readAsBinaryString(file);
   };
 
-  // 4. Suppression
   const handleDeleteRoom = async (id: string) => {
-    if (window.confirm("Supprimer cette salle physique ?")) {
+    if (window.confirm("Supprimer cette salle ?")) {
       const filtered = rooms.filter((r) => r.id !== id);
       setRooms(filtered);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
 
       if (supabase) {
-        const { error } = await supabase.from("rooms").delete().eq("id", id);
-        if (error) console.error("Erreur de suppression Supabase :", error.message);
+        await supabase.from("rooms").delete().eq("id", id);
       }
     }
   };
 
-  // 5. Réinitialisation
+  // REINITIALISATION DEFAILLANCE CORRIGEE
   const handleResetRooms = async () => {
-    if (window.confirm("Attention : Voulez-vous vraiment TOUT effacer pour les salles ?")) {
+    if (window.confirm("Attention : Voulez-vous vraiment TOUT effacer dans les salles ?")) {
       setRooms([]);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+      localStorage.removeItem(STORAGE_KEY);
 
       if (supabase) {
-        const { error } = await supabase.from("rooms").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-        if (error) console.error("Erreur de réinitialisation Supabase :", error.message);
+        // Supprime toutes les lignes dont la capacité est >= 0
+        await supabase.from("rooms").delete().gte("capacity", 0);
       }
     }
   };
 
-  if (!isInitialized) {
-    return <div className="p-8 text-xs text-slate-400">Chargement des locaux...</div>;
-  }
+  if (!isInitialized) return <div className="p-8 text-xs text-slate-400">Chargement...</div>;
 
   return (
     <div className="flex-1 space-y-6 p-8 pt-6">
@@ -198,7 +173,7 @@ export default function RoomsPage() {
                   variant="outline"
                   size="sm"
                   onClick={handleResetRooms}
-                  className="h-7 text-[10px] text-rose-500 border-rose-200 hover:bg-rose-50"
+                  className="h-7 text-[10px] text-rose-500 border-rose-200 hover:bg-rose-50 cursor-pointer"
                 >
                   <RotateCcw className="size-3 mr-1" /> Réinitialiser
                 </Button>
@@ -272,7 +247,7 @@ export default function RoomsPage() {
                         <p className="text-[11px] text-muted-foreground font-medium">{r.type} · Max {r.capacity} places</p>
                       </div>
                     </div>
-                    <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDeleteRoom(r.id)}><Trash2 className="size-4" /></Button>
+                    <Button variant="ghost" size="icon" className="text-destructive cursor-pointer" onClick={() => handleDeleteRoom(r.id)}><Trash2 className="size-4" /></Button>
                   </CardContent>
                 </Card>
               ))}

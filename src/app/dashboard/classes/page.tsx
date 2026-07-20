@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Layers, Plus, FileSpreadsheet, Upload, Trash2, Save, Clock, BookOpen, ChevronRight, RotateCcw } from "lucide-react";
+import { Layers, Plus, FileSpreadsheet, Upload, Trash2, Clock, BookOpen, ChevronRight, RotateCcw } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import * as XLSX from "xlsx";
 
@@ -53,25 +53,11 @@ export default function ClassesPage() {
   const [customHours, setCustomHours] = useState<Record<string, number>>(DEFAULT_MENA_HOURS["6ème"]);
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
 
-  // 1. DÉMARRAGE : Priorité absolue aux données de l'utilisateur
   useEffect(() => {
     const loadClassesData = async () => {
-      const savedLocal = localStorage.getItem(STORAGE_KEY);
-      if (savedLocal !== null) {
-        try {
-          const parsed = JSON.parse(savedLocal);
-          setClasses(parsed);
-          if (parsed.length > 0) setSelectedClassId(parsed[0].id);
-          setIsInitialized(true);
-          return;
-        } catch (e) {
-          console.error("Erreur de lecture du localStorage classes :", e);
-        }
-      }
-
       if (supabase) {
         try {
-          const { data, error } = await (supabase.from("classes" as any) as any).select("*");
+          const { data, error } = await supabase.from("classgroups").select("*");
           if (!error && data && data.length > 0) {
             setClasses(data);
             setSelectedClassId(data[0].id);
@@ -80,38 +66,25 @@ export default function ClassesPage() {
             return;
           }
         } catch (e) {
-          console.log("Supabase classes non disponible ou vide", e);
+          console.log("Supabase non disponible :", e);
         }
       }
 
-      // Si vraiment première ouverture absolue
-      const initial: ClassGroup[] = [
-        { id: "c1", level: "6ème", name: "6ème 1", studentCount: 45, subjectHours: DEFAULT_MENA_HOURS["6ème"] },
-        { id: "c2", level: "3ème", name: "3ème 2", studentCount: 42, subjectHours: DEFAULT_MENA_HOURS["3ème"] },
-        { id: "c3", level: "Tle D", name: "Tle D1", studentCount: 38, subjectHours: DEFAULT_MENA_HOURS["Tle D"] },
-      ];
-      setClasses(initial);
-      setSelectedClassId("c1");
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(initial));
+      const savedLocal = localStorage.getItem(STORAGE_KEY);
+      if (savedLocal !== null) {
+        try {
+          const parsed = JSON.parse(savedLocal);
+          setClasses(parsed);
+          if (parsed.length > 0) setSelectedClassId(parsed[0].id);
+        } catch (e) {
+          console.error(e);
+        }
+      }
       setIsInitialized(true);
     };
 
     loadClassesData();
   }, []);
-
-  // Persistance SaaS garantie
-  const persistClasses = async (updated: ClassGroup[]) => {
-    setClasses(updated);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-
-    if (supabase) {
-      try {
-        await (supabase.from("classes" as any) as any).upsert(updated);
-      } catch (e) {
-        console.error("Erreur Supabase Classes :", e);
-      }
-    }
-  };
 
   const handleLevelChange = (newLevel: string) => {
     setLevel(newLevel);
@@ -126,7 +99,7 @@ export default function ClassesPage() {
     }));
   };
 
-  const handleAddClass = (e: React.FormEvent) => {
+  const handleAddClass = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name) return;
 
@@ -136,7 +109,7 @@ export default function ClassesPage() {
     });
 
     const newClass: ClassGroup = {
-      id: `c_${Date.now()}`,
+      id: crypto.randomUUID(),
       level,
       name,
       studentCount: Number(studentCount),
@@ -144,23 +117,13 @@ export default function ClassesPage() {
     };
 
     const updated = [newClass, ...classes];
-    persistClasses(updated);
+    setClasses(updated);
     setSelectedClassId(newClass.id);
-  };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 
-  const handleUpdateSelectedClassHour = (sub: string, delta: number) => {
-    if (!selectedClassId) return;
-
-    const updated = classes.map((c) => {
-      if (c.id !== selectedClassId) return c;
-      const updatedHours = { ...c.subjectHours };
-      const newHrs = Math.max(0, (updatedHours[sub] || 0) + delta);
-      if (newHrs <= 0) delete updatedHours[sub];
-      else updatedHours[sub] = newHrs;
-      return { ...c, subjectHours: updatedHours };
-    });
-
-    persistClasses(updated);
+    if (supabase) {
+      await supabase.from("classgroups").insert([newClass]);
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -168,19 +131,16 @@ export default function ClassesPage() {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (evt) => {
+    reader.onload = async (evt) => {
       try {
         const data = new Uint8Array(evt.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: "array" });
-        const firstSheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[firstSheetName];
-        
+        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
         const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1 });
         const newClasses: ClassGroup[] = [];
 
         jsonData.forEach((row: any, index: number) => {
-          if (index === 0) return;
-          if (!row || row.length === 0) return;
+          if (index === 0 || !row || row.length === 0) return;
 
           const className = row[0]?.toString().trim();
           let classLevel = row[1]?.toString().trim();
@@ -193,7 +153,7 @@ export default function ClassesPage() {
             }
 
             newClasses.push({
-              id: `c_excel_${Date.now()}_${index}`,
+              id: crypto.randomUUID(),
               name: className,
               level: classLevel,
               studentCount: isNaN(count) ? 40 : count,
@@ -204,34 +164,34 @@ export default function ClassesPage() {
 
         if (newClasses.length > 0) {
           const merged = [...newClasses, ...classes];
-          persistClasses(merged);
+          setClasses(merged);
           setSelectedClassId(newClasses[0].id);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+
+          if (supabase) {
+            await supabase.from("classgroups").insert(newClasses);
+          }
+
           setEntryMode("manual");
-          alert(`${newClasses.length} classe(s) importée(s) et enregistrée(s) avec succès !`);
-        } else {
-          alert("Aucune classe valide trouvée.");
+          alert(`${newClasses.length} classe(s) importée(s) !`);
         }
       } catch (err) {
         console.error(err);
-        alert("Erreur lors de la lecture du fichier Excel.");
       }
     };
 
     reader.readAsArrayBuffer(file);
   };
 
-  const handleResetAllClasses = () => {
+  // REINITIALISATION DEFAILLANCE CORRIGEE
+  const handleResetAllClasses = async () => {
     if (confirm("Attention : Voulez-vous vraiment TOUT effacer pour les classes ?")) {
       setClasses([]);
       setSelectedClassId(null);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+      localStorage.removeItem(STORAGE_KEY);
 
       if (supabase) {
-        try {
-          (supabase.from("classes" as any) as any).delete().neq("id", "0");
-        } catch (e) {
-          console.error(e);
-        }
+        await supabase.from("classgroups").delete().gte("studentCount", 0);
       }
     }
   };
@@ -241,9 +201,7 @@ export default function ClassesPage() {
     ? Object.values(selectedClass.subjectHours).reduce((a, b) => a + b, 0)
     : 0;
 
-  if (!isInitialized) {
-    return <div className="p-8 text-xs text-slate-400">Chargement des divisions et classes...</div>;
-  }
+  if (!isInitialized) return <div className="p-8 text-xs text-slate-400">Chargement...</div>;
 
   return (
     <div className="space-y-6">
@@ -400,20 +358,14 @@ export default function ClassesPage() {
                 Classes configurées ({classes.length})
               </h3>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleResetAllClasses}
-                  className="text-[10px] text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 px-2 py-1 rounded-md font-bold transition-all flex items-center gap-1 cursor-pointer"
-                >
-                  <RotateCcw className="size-3" />
-                  Réinitialiser
-                </button>
-
-                <span className="text-[10px] text-emerald-400 font-medium flex items-center gap-1">
-                  <Save className="size-3" /> Auto
-                </span>
-              </div>
+              <button
+                type="button"
+                onClick={handleResetAllClasses}
+                className="text-[10px] text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 px-2 py-1 rounded-md font-bold transition-all flex items-center gap-1 cursor-pointer"
+              >
+                <RotateCcw className="size-3" />
+                Réinitialiser
+              </button>
             </div>
 
             <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
@@ -438,13 +390,15 @@ export default function ClassesPage() {
                   </div>
 
                   <button
-                    onClick={(e) => {
+                    onClick={async (e) => {
                       e.stopPropagation();
                       const filtered = classes.filter((item) => item.id !== c.id);
-                      persistClasses(filtered);
+                      setClasses(filtered);
+                      localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
                       if (selectedClassId === c.id) setSelectedClassId(filtered.length > 0 ? filtered[0].id : null);
+                      if (supabase) await supabase.from("classgroups").delete().eq("id", c.id);
                     }}
-                    className="text-slate-500 hover:text-rose-400 p-1"
+                    className="text-slate-500 hover:text-rose-400 p-1 cursor-pointer"
                   >
                     <Trash2 className="size-3.5" />
                   </button>
@@ -493,24 +447,6 @@ export default function ClassesPage() {
                             {hrs > 0 ? `${hrs}h réservées` : "Non enseigné"}
                           </p>
                         </div>
-
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => handleUpdateSelectedClassHour(sub, -0.5)}
-                            className="size-7 rounded-lg bg-slate-200 hover:bg-slate-300 font-bold text-slate-700 flex items-center justify-center text-sm cursor-pointer"
-                          >
-                            -
-                          </button>
-                          <span className="w-10 text-center font-black text-xs">{hrs}h</span>
-                          <button
-                            type="button"
-                            onClick={() => handleUpdateSelectedClassHour(sub, 0.5)}
-                            className="size-7 rounded-lg bg-emerald-600 hover:bg-emerald-500 font-bold text-white flex items-center justify-center text-sm cursor-pointer"
-                          >
-                            +
-                          </button>
-                        </div>
                       </div>
                     );
                   })}
@@ -518,7 +454,7 @@ export default function ClassesPage() {
               </div>
             ) : (
               <div className="text-center py-24 text-slate-400 text-xs">
-                Sélectionnez une classe dans la liste à gauche pour voir et ajuster ses heures par matière.
+                Sélectionnez une classe dans la liste pour afficher ses détails.
               </div>
             )}
           </Card>
