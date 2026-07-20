@@ -20,25 +20,43 @@ const NIVEAUX_MENA = [
   "Tle A1", "Tle A2", "Tle C", "Tle D"
 ];
 
-// Matrice officielle exacte (Circulaire N° 272/MENA/DPFC)
+// Matrice officielle exacte avec ajout de TICE (1h/semaine par défaut)
 const DEFAULT_MENA_HOURS: Record<string, Record<string, number>> = {
-  "6ème": { "FR": 5, "MATHS": 4, "ANG": 3, "HG": 2, "SVT": 1.5, "PC": 1.5, "EPS": 2, "EDHC": 1, "ARTS": 1 },
-  "5ème": { "FR": 5, "MATHS": 4, "ANG": 3, "HG": 2, "SVT": 1.5, "PC": 1.5, "EPS": 2, "EDHC": 1, "ARTS": 1 },
-  "4ème": { "FR": 6, "MATHS": 4, "ANG": 3, "LV2": 3, "HG": 3, "SVT": 1.5, "PC": 1.5, "EPS": 2, "EDHC": 1, "ARTS": 1 },
-  "3ème": { "FR": 6, "MATHS": 4, "ANG": 3, "LV2": 3, "HG": 4, "SVT": 2, "PC": 2, "EPS": 2, "EDHC": 1, "ARTS": 1 },
-  "2nde A": { "FR": 4, "ANG": 3, "LV2": 3, "HG": 4, "MATHS": 3, "PC": 3.5, "SVT": 1.5, "EPS": 2, "ARTS": 1 },
-  "2nde C": { "FR": 4, "MATHS": 5, "PC": 5, "SVT": 2, "ANG": 3, "LV2": 3, "HG": 4, "EPS": 2, "ARTS": 1 },
-  "1ère A1": { "FR": 4, "ANG": 3, "LV2": 3, "PHILO": 3, "HG": 4, "MATHS": 4, "SVT": 2.5, "PC": 2.5, "EPS": 2, "ARTS": 1 },
-  "1ère A2": { "FR": 4, "ANG": 3, "LV2": 3, "PHILO": 3, "HG": 4, "MATHS": 3, "SVT": 2.5, "PC": 2.5, "EPS": 2, "ARTS": 1 },
-  "1ère C": { "MATHS": 6, "PC": 4.5, "SVT": 2, "FR": 3, "ANG": 3, "HG": 4, "PHILO": 2, "EPS": 2, "ARTS": 1 },
-  "1ère D": { "SVT": 4.5, "MATHS": 5, "PC": 3, "FR": 3, "ANG": 3, "HG": 4, "PHILO": 2, "EPS": 2, "ARTS": 1 },
-  "Tle A1": { "PHILO": 8, "FR": 4, "ANG": 3, "LV2": 3, "HG": 4, "MATHS": 5, "SVT": 2, "EPS": 2, "ARTS": 1 },
-  "Tle A2": { "PHILO": 8, "FR": 4, "ANG": 3, "LV2": 3, "HG": 4, "MATHS": 4, "SVT": 2, "EPS": 2, "ARTS": 1 },
-  "Tle C": { "MATHS": 8, "PC": 4, "SVT": 2, "FR": 3, "ANG": 2, "HG": 4, "PHILO": 3, "EPS": 2, "ARTS": 1 },
-  "Tle D": { "SVT": 5, "PC": 5, "MATHS": 6, "FR": 3, "ANG": 2, "HG": 4, "PHILO": 3, "EPS": 2, "ARTS": 1 },
+  "6ème": { "FR": 5, "MATHS": 4, "ANG": 3, "HG": 2, "SVT": 1.5, "PC": 1.5, "EPS": 2, "EDHC": 1, "ARTS": 1, "TICE": 1 },
+  "5ème": { "FR": 5, "MATHS": 4, "ANG": 3, "HG": 2, "SVT": 1.5, "PC": 1.5, "EPS": 2, "EDHC": 1, "ARTS": 1, "TICE": 1 },
+  "4ème": { "FR": 6, "MATHS": 4, "ANG": 3, "LV2": 3, "HG": 3, "SVT": 1.5, "PC": 1.5, "EPS": 2, "EDHC": 1, "ARTS": 1, "TICE": 1 },
+  "3ème": { "FR": 6, "MATHS": 4, "ANG": 3, "LV2": 3, "HG": 4, "SVT": 2, "PC": 2, "EPS": 2, "EDHC": 1, "ARTS": 1, "TICE": 1 },
+  "2nde A": { "FR": 4, "ANG": 3, "LV2": 3, "HG": 4, "MATHS": 3, "PC": 3.5, "SVT": 1.5, "EPS": 2, "ARTS": 1, "TICE": 1 },
+  "2nde C": { "FR": 4, "MATHS": 5, "PC": 5, "SVT": 2, "ANG": 3, "LV2": 3, "HG": 4, "EPS": 2, "ARTS": 1, "TICE": 1 },
+  "1ère A1": { "FR": 4, "ANG": 3, "LV2": 3, "PHILO": 3, "HG": 4, "MATHS": 4, "SVT": 2.5, "PC": 2.5, "EPS": 2, "ARTS": 1, "TICE": 1 },
+  "1ère A2": { "FR": 4, "ANG": 3, "LV2": 3, "PHILO": 3, "HG": 4, "MATHS": 3, "SVT": 2.5, "PC": 2.5, "EPS": 2, "ARTS": 1, "TICE": 1 },
+  "1ère C": { "MATHS": 6, "PC": 4.5, "SVT": 2, "FR": 3, "ANG": 3, "HG": 4, "PHILO": 2, "EPS": 2, "ARTS": 1, "TICE": 1 },
+  "1ère D": { "SVT": 4.5, "MATHS": 5, "PC": 3, "FR": 3, "ANG": 3, "HG": 4, "PHILO": 2, "EPS": 2, "ARTS": 1, "TICE": 1 },
+  "Tle A1": { "PHILO": 8, "FR": 4, "ANG": 3, "LV2": 3, "HG": 4, "MATHS": 5, "SVT": 2, "EPS": 2, "ARTS": 1, "TICE": 1 },
+  "Tle A2": { "PHILO": 8, "FR": 4, "ANG": 3, "LV2": 3, "HG": 4, "MATHS": 4, "SVT": 2, "EPS": 2, "ARTS": 1, "TICE": 1 },
+  "Tle C": { "MATHS": 8, "PC": 4, "SVT": 2, "FR": 3, "ANG": 2, "HG": 4, "PHILO": 3, "EPS": 2, "ARTS": 1, "TICE": 1 },
+  "Tle D": { "SVT": 5, "PC": 5, "MATHS": 6, "FR": 3, "ANG": 2, "HG": 4, "PHILO": 3, "EPS": 2, "ARTS": 1, "TICE": 1 },
 };
 
-const ALL_SUBJECTS = ["FR", "MATHS", "ANG", "LV2", "HG", "SVT", "PC", "PHILO", "EPS", "EDHC", "ARTS"];
+// Liste des matières incluant TICE
+const ALL_SUBJECTS = ["FR", "MATHS", "ANG", "LV2", "HG", "SVT", "PC", "PHILO", "EPS", "EDHC", "ARTS", "TICE"];
+
+// Coefficients des matières
+export const SUBJECT_COEFFICIENTS: Record<string, number> = {
+  "FR": 3,
+  "MATHS": 3,
+  "ANG": 2,
+  "LV2": 2,
+  "HG": 2,
+  "SVT": 2,
+  "PC": 2,
+  "PHILO": 3,
+  "EPS": 1,
+  "EDHC": 1,
+  "ARTS": 1,
+  "TICE": 1, // Coef 1
+};
+
 const LOCAL_STORAGE_KEY = "edutime_classes_list";
 
 export default function ClassesPage() {
@@ -138,7 +156,6 @@ export default function ClassesPage() {
     );
   };
 
-  // Traitement Excel / CSV universel avec la bibliothèque XLSX
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -151,12 +168,11 @@ export default function ClassesPage() {
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
         
-        // Convertir la feuille en tableau JSON
         const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1 });
         const newClasses: ClassGroup[] = [];
 
         jsonData.forEach((row: any, index: number) => {
-          if (index === 0) return; // Ignorer l'en-tête
+          if (index === 0) return;
           if (!row || row.length === 0) return;
 
           const className = row[0]?.toString().trim();
@@ -164,7 +180,6 @@ export default function ClassesPage() {
           const count = parseInt(row[2]?.toString().trim() || "40", 10);
 
           if (className) {
-            // Détection automatique ou fallback du niveau MENA
             if (!classLevel || !DEFAULT_MENA_HOURS[classLevel]) {
               const matchedLevel = NIVEAUX_MENA.find((n) => className.toLowerCase().includes(n.toLowerCase()));
               classLevel = matchedLevel || "6ème";
@@ -186,18 +201,17 @@ export default function ClassesPage() {
           setEntryMode("manual");
           alert(`${newClasses.length} classe(s) importée(s) avec succès !`);
         } else {
-          alert("Aucune classe valide trouvée. Vérifiez la structure de votre fichier (Colonne A: Nom, Colonne B: Niveau, Colonne C: Effectif).");
+          alert("Aucune classe valide trouvée.");
         }
       } catch (err) {
         console.error("Erreur de lecture du fichier Excel", err);
-        alert("Erreur lors de la lecture du fichier Excel. Assurez-vous d'utiliser un fichier .xlsx, .xls ou .csv valide.");
+        alert("Erreur lors de la lecture du fichier Excel.");
       }
     };
 
     reader.readAsArrayBuffer(file);
   };
 
-  // Réinitialiser / Tout vider
   const handleResetAllClasses = () => {
     if (confirm("Êtes-vous sûr de vouloir tout effacer ? Toutes les classes de la liste seront supprimées.")) {
       setClasses([]);
@@ -266,9 +280,6 @@ export default function ClassesPage() {
                   <Upload className="size-8 text-emerald-600" />
                   <p className="text-xs font-bold text-slate-800">
                     Déposez votre fichier Excel / CSV ici
-                  </p>
-                  <p className="text-[10px] text-slate-500 font-medium">
-                    Formats acceptés : .xlsx, .xls, .csv (Nom, Niveau, Effectif)
                   </p>
                 </div>
               </div>
@@ -363,7 +374,6 @@ export default function ClassesPage() {
             )}
           </Card>
 
-          {/* Liste des classes avec BOUTON RÉINITIALISER */}
           <Card className="bg-slate-900 border-slate-800 p-4 text-slate-200">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
@@ -375,7 +385,6 @@ export default function ClassesPage() {
                   type="button"
                   onClick={handleResetAllClasses}
                   className="text-[10px] text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 px-2 py-1 rounded-md font-bold transition-all flex items-center gap-1 cursor-pointer"
-                  title="Tout effacer pour réimporter propre"
                 >
                   <RotateCcw className="size-3" />
                   Réinitialiser
