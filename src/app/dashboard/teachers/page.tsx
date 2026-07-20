@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
-import { FileSpreadsheet, Plus, Upload, CheckCircle2, User, Trash2 } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { FileSpreadsheet, Plus, Upload, CheckCircle2, User, Trash2, Save } from "lucide-react";
 import { Card } from "@/components/ui/card";
 
 interface Teacher {
@@ -24,16 +24,54 @@ const SLOTS = [
   { id: "A4", label: "16h00 - 16h55" },
 ];
 
+const LOCAL_STORAGE_KEY = "edutime_teachers_list";
+
 export default function TeachersPage() {
   const [entryMode, setEntryMode] = useState<"manual" | "excel">("manual");
-  const [teachers, setTeachers] = useState<Teacher[]>([
-    { id: "1", name: "M. Gomez Paul", subject: "MATHS", maxHours: 18, unavailabilities: {} },
-  ]);
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [isLoaded, setIsLoaded] = useState(false);
 
   const [name, setName] = useState("");
   const [subject, setSubject] = useState("");
   const [maxHours, setMaxHours] = useState(18);
-  const [selectedTeacherId, setSelectedTeacherId] = useState<string | null>("1");
+  const [selectedTeacherId, setSelectedTeacherId] = useState<string | null>(null);
+
+  // 1. Charger la liste sauvegardée au démarrage
+  useEffect(() => {
+    const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setTeachers(parsed);
+          setSelectedTeacherId(parsed[0].id);
+        } else {
+          loadDefaultTeachers();
+        }
+      } catch (e) {
+        console.error("Erreur de lecture du localStorage", e);
+        loadDefaultTeachers();
+      }
+    } else {
+      loadDefaultTeachers();
+    }
+    setIsLoaded(true);
+  }, []);
+
+  const loadDefaultTeachers = () => {
+    const initial: Teacher[] = [
+      { id: "1", name: "M. Gomez Paul", subject: "MATHS", maxHours: 18, unavailabilities: {} }
+    ];
+    setTeachers(initial);
+    setSelectedTeacherId("1");
+  };
+
+  // 2. Sauvegarder automatiquement dès que la liste des enseignants change
+  useEffect(() => {
+    if (isLoaded) {
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(teachers));
+    }
+  }, [teachers, isLoaded]);
 
   const selectedTeacher = teachers.find((t) => t.id === selectedTeacherId);
 
@@ -91,7 +129,11 @@ export default function TeachersPage() {
       });
 
       if (newTeachers.length > 0) {
-        setTeachers((prev) => [...newTeachers, ...prev]);
+        setTeachers((prev) => {
+          const updated = [...newTeachers, ...prev];
+          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
+          return updated;
+        });
         setSelectedTeacherId(newTeachers[0].id);
         setEntryMode("manual");
       }
@@ -100,7 +142,6 @@ export default function TeachersPage() {
     reader.readAsText(file);
   };
 
-  // Basculer l'état d'un créneau (Dispo -> Indispo -> CE/UP -> Dispo)
   const toggleSlotState = (day: string, slotId: string) => {
     if (!selectedTeacherId) return;
 
@@ -251,9 +292,14 @@ export default function TeachersPage() {
           </Card>
 
           <Card className="bg-slate-900 border-slate-800 p-4 text-slate-200">
-            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
-              Liste des Enseignants ({teachers.length})
-            </h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                Liste des Enseignants ({teachers.length})
+              </h3>
+              <span className="text-[10px] text-emerald-400 font-medium flex items-center gap-1">
+                <Save className="size-3" /> Sauvegarde auto
+              </span>
+            </div>
             <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
               {teachers.map((t) => (
                 <div
