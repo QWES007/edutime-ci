@@ -32,18 +32,51 @@ export default function TeachersPage() {
     setMaxHours(18);
   };
 
+  // Lecture du vrai fichier CSV / Excel
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      alert(`Fichier "${file.name}" sélectionné ! En cours de traitement...`);
-      // Exemple de données simulées importées
-      const imported = [
-        { id: Date.now() + "1", name: "Mme Kouassi Awa", subject: "FRANCAIS", maxHours: 18 },
-        { id: Date.now() + "2", name: "M. Konan Jean", subject: "HG", maxHours: 18 },
-      ];
-      setTeachers((prev) => [...imported, ...prev]);
-      setEntryMode("manual");
-    }
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const text = evt.target?.result as string;
+      if (!text) return;
+
+      const lines = text.split(/\r\n|\n/);
+      const newTeachers: { id: string; name: string; subject: string; maxHours: number }[] = [];
+
+      lines.forEach((line, index) => {
+        // Ignorer la ligne d'en-tête ou les lignes vides
+        if (index === 0 && (line.toLowerCase().includes("nom") || line.toLowerCase().includes("name"))) return;
+        if (!line.trim()) return;
+
+        // Découpage par virgule ou point-virgule
+        const columns = line.split(/[,;]/);
+        if (columns.length >= 2) {
+          const teacherName = columns[0].trim().replace(/^["']|["']$/g, "");
+          const teacherSubject = columns[1].trim().replace(/^["']|["']$/g, "").toUpperCase();
+          const teacherHours = columns[2] ? parseInt(columns[2].trim(), 10) : 18;
+
+          if (teacherName && teacherSubject) {
+            newTeachers.push({
+              id: Date.now().toString() + Math.random().toString().slice(2, 6),
+              name: teacherName,
+              subject: teacherSubject,
+              maxHours: isNaN(teacherHours) ? 18 : teacherHours,
+            });
+          }
+        }
+      });
+
+      if (newTeachers.length > 0) {
+        setTeachers((prev) => [...newTeachers, ...prev]);
+        setEntryMode("manual");
+      } else {
+        alert("Impossible de lire les enseignants du fichier. Assurez-vous que le fichier est structuré : Nom, Matière, Volume Horaire.");
+      }
+    };
+
+    reader.readAsText(file);
   };
 
   return (
@@ -101,16 +134,16 @@ export default function TeachersPage() {
                 <div className="border-2 border-dashed border-emerald-300 bg-emerald-50/50 rounded-xl p-6 text-center flex flex-col items-center justify-center gap-2 transition-all hover:bg-emerald-50 cursor-pointer relative">
                   <input
                     type="file"
-                    accept=".xlsx, .xls, .csv"
+                    accept=".csv, .txt, .xlsx, .xls"
                     onChange={handleFileUpload}
                     className="absolute inset-0 opacity-0 cursor-pointer"
                   />
                   <Upload className="size-8 text-emerald-600" />
                   <p className="text-xs font-bold text-slate-800">
-                    Déposez votre fichier Excel ici
+                    Déposez votre fichier Excel / CSV ici
                   </p>
                   <p className="text-[10px] text-slate-500 font-medium">
-                    Formats acceptés : .xlsx, .xls, .csv (Nom, Discipline, Volume Horaires)
+                    Colonnes attendues : Nom, Discipline, Volume Horaire
                   </p>
                 </div>
               </div>
@@ -172,7 +205,7 @@ export default function TeachersPage() {
             )}
           </Card>
 
-          {/* Liste des enseignants ajoutés */}
+          {/* Liste des enseignants */}
           <Card className="bg-slate-900 border-slate-800 p-4 text-slate-200">
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
               Liste des Enseignants ({teachers.length})
