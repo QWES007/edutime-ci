@@ -13,8 +13,10 @@ import {
   Calendar,
   XCircle,
   AlertCircle,
-  RotateCcw
+  RotateCcw,
+  Upload
 } from "lucide-react";
+import * as XLSX from "xlsx";
 
 interface Teacher {
   id: string;
@@ -42,6 +44,7 @@ export default function TeachersPage() {
 
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [selectedTeacherId, setSelectedTeacherId] = useState<string | null>(null);
+  const [insertMode, setInsertMode] = useState<"manual" | "excel">("manual");
   
   const [name, setName] = useState("");
   const [subject, setSubject] = useState("");
@@ -114,6 +117,57 @@ export default function TeachersPage() {
     setName("");
     setSubject("");
     setWeeklyHours(18);
+  };
+
+  const handleExcelImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: "binary" });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws) as any[];
+
+        const importedTeachers: Teacher[] = data
+          .filter((row) => row.Nom || row.Teacher || row.Enseignant)
+          .map((row, index) => ({
+            id: `t_excel_${Date.now()}_${index}`,
+            name: String(row.Nom || row.Teacher || row.Enseignant).trim(),
+            subject: String(row.Discipline || row.Matiere || row.Subject || "MATHS").trim().toUpperCase(),
+            weekly_hours: Number(row.Heures || row.Volume || row.Hours) || 18,
+            unavailabilities: {},
+          }));
+
+        if (importedTeachers.length === 0) {
+          alert("Aucun enseignant valide trouvé. Vérifiez les entêtes de colonnes ('Nom', 'Discipline', 'Heures').");
+          return;
+        }
+
+        const updated = [...teachers, ...importedTeachers];
+        setTeachers(updated);
+        if (importedTeachers.length > 0) setSelectedTeacherId(importedTeachers[0].id);
+        localStorage.setItem("edutime_teachers", JSON.stringify(updated));
+
+        if (supabase) {
+          try {
+            await (supabase.from("teachers" as any) as any).insert(importedTeachers);
+          } catch (err) {
+            console.error("Erreur d'insertion Supabase Excel :", err);
+          }
+        }
+
+        alert(`${importedTeachers.length} enseignant(s) importé(s) avec succès !`);
+        setInsertMode("manual");
+      } catch (err) {
+        console.error(err);
+        alert("Erreur lors de la lecture du fichier Excel.");
+      }
+    };
+    reader.readAsBinaryString(file);
   };
 
   const handleDeleteTeacher = async (id: string) => {
@@ -229,51 +283,85 @@ export default function TeachersPage() {
                     <RotateCcw className="size-3" /> Réinitialiser
                   </Button>
 
-                  <Button size="sm" variant="outline" className="text-xs h-7 gap-1">
-                    <FileSpreadsheet className="size-3.5 text-emerald-600" /> Excel
+                  <Button 
+                    size="sm" 
+                    variant={insertMode === "excel" ? "default" : "outline"} 
+                    onClick={() => setInsertMode("excel")}
+                    className={`text-xs h-7 gap-1 ${insertMode === "excel" ? "bg-emerald-600 text-white" : ""}`}
+                  >
+                    <FileSpreadsheet className="size-3.5" /> Excel
                   </Button>
-                  <Button size="sm" className="text-xs h-7 gap-1 bg-emerald-600 text-white">
+                  <Button 
+                    size="sm" 
+                    variant={insertMode === "manual" ? "default" : "outline"}
+                    onClick={() => setInsertMode("manual")}
+                    className={`text-xs h-7 gap-1 ${insertMode === "manual" ? "bg-emerald-600 text-white" : ""}`}
+                  >
                     <Plus className="size-3.5" /> Manuel
                   </Button>
                 </div>
               </div>
 
-              <form onSubmit={handleAddTeacher} className="space-y-3">
-                <div>
-                  <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">Nom complet</label>
-                  <Input 
-                    placeholder="Ex: M. Gomez Paul" 
-                    value={name} 
-                    onChange={(e) => setName(e.target.value)}
-                    className="mt-1 text-xs"
-                  />
+              {insertMode === "excel" ? (
+                <div className="space-y-4">
+                  <div className="border-2 border-dashed border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-950/20 rounded-xl p-6 text-center hover:bg-emerald-50 transition-colors relative cursor-pointer group">
+                    <input 
+                      type="file" 
+                      accept=".xlsx, .xls, .csv" 
+                      onChange={handleExcelImport} 
+                      className="absolute inset-0 opacity-0 cursor-pointer" 
+                    />
+                    <Upload className="size-8 mx-auto text-emerald-600 mb-2" />
+                    <p className="text-xs font-bold text-slate-800 dark:text-slate-200">Glissez votre fichier Excel ou CSV ici</p>
+                    <p className="text-[10px] text-slate-500 mt-1">Formats acceptés: .xlsx, .xls, .csv</p>
+                  </div>
+                  <div className="bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-3 rounded-lg text-[10px] text-slate-500 space-y-1">
+                    <span className="font-bold text-slate-700 dark:text-slate-300 block">Colonnes acceptées dans Excel :</span>
+                    <ul className="list-disc pl-4 space-y-0.5">
+                      <li><strong>Nom</strong> ou <strong>Enseignant</strong> (ex: M. Koffi Paul).</li>
+                      <li><strong>Discipline</strong> ou <strong>Matiere</strong> (ex: MATHS, FR).</li>
+                      <li><strong>Heures</strong> ou <strong>Volume</strong> (ex: 18).</li>
+                    </ul>
+                  </div>
                 </div>
-
-                <div className="grid grid-cols-2 gap-3">
+              ) : (
+                <form onSubmit={handleAddTeacher} className="space-y-3">
                   <div>
-                    <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">Discipline</label>
+                    <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">Nom complet</label>
                     <Input 
-                      placeholder="Ex: MATHS, FR, PHILO" 
-                      value={subject} 
-                      onChange={(e) => setSubject(e.target.value)}
+                      placeholder="Ex: M. Gomez Paul" 
+                      value={name} 
+                      onChange={(e) => setName(e.target.value)}
                       className="mt-1 text-xs"
                     />
                   </div>
-                  <div>
-                    <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">Volume Horaire</label>
-                    <Input 
-                      type="number"
-                      value={weeklyHours} 
-                      onChange={(e) => setWeeklyHours(Number(e.target.value))}
-                      className="mt-1 text-xs"
-                    />
-                  </div>
-                </div>
 
-                <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs h-9">
-                  Enregistrer l&apos;enseignant
-                </Button>
-              </form>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">Discipline</label>
+                      <Input 
+                        placeholder="Ex: MATHS, FR, PHILO" 
+                        value={subject} 
+                        onChange={(e) => setSubject(e.target.value)}
+                        className="mt-1 text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">Volume Horaire</label>
+                      <Input 
+                        type="number"
+                        value={weeklyHours} 
+                        onChange={(e) => setWeeklyHours(Number(e.target.value))}
+                        className="mt-1 text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs h-9">
+                    Enregistrer l&apos;enseignant
+                  </Button>
+                </form>
+              )}
             </CardContent>
           </Card>
 
