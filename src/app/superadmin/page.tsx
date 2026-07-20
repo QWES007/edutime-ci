@@ -57,12 +57,15 @@ export default function SuperAdminConsole() {
         return;
       }
 
-      // 2. Interroger la table profiles pour vérifier le booléen is_superadmin
-      const { data: profile, error: profileError } = await supabase
+      // 2. Interroger la table profiles avec un typage explicite
+      const { data, error: profileError } = await supabase
         .from("profiles")
         .select("is_superadmin")
         .eq("id", user.id)
         .single();
+
+      // Typage sécurisé pour TypeScript
+      const profile = data as { is_superadmin: boolean } | null;
 
       if (profileError || !profile || !profile.is_superadmin) {
         // Redirection immédiate si l'utilisateur est un simple censeur/utilisateur
