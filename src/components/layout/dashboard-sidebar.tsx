@@ -13,7 +13,8 @@ import {
   ChevronRight,
   Sparkles,
   LogOut,
-  ShieldCheck
+  ShieldCheck,
+  Building
 } from "lucide-react";
 
 interface MenuItem {
@@ -59,33 +60,49 @@ export function DashboardSidebar() {
   const supabase = createClient();
 
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [schoolName, setSchoolName] = useState<string>("");
   const [openSubmenus, setOpenSubmenus] = useState<Record<string, boolean>>({
     "SCOLARITÉ": true,
     "EMPLOIS DU TEMPS": true,
   });
 
-  // Vérification de la propriété SuperAdmin en base de données
+  // Chargement des infos de l'établissement et du rôle admin
   useEffect(() => {
-    checkAdminStatus();
+    loadProfileAndAdminStatus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const checkAdminStatus = async () => {
+  const loadProfileAndAdminStatus = async () => {
+    // 1. Vérification dans le LocalStorage (Infiltration / profil local)
+    const savedProfile = localStorage.getItem("edutime_profile");
+    if (savedProfile) {
+      try {
+        const parsed = JSON.parse(savedProfile);
+        if (parsed.schoolName) setSchoolName(parsed.schoolName);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    // 2. Vérification Supabase
     try {
       if (!supabase) return;
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
       const { data } = await (supabase.from("profiles" as any) as any)
-        .select("is_superadmin")
+        .select("school_name, is_superadmin")
         .eq("id", user.id)
         .single();
 
-      if (data && data.is_superadmin) {
-        setIsSuperAdmin(true);
+      if (data) {
+        if (data.is_superadmin) setIsSuperAdmin(true);
+        if (data.school_name && !schoolName) {
+          setSchoolName(data.school_name);
+        }
       }
     } catch (e) {
-      console.error("Erreur de vérification superadmin:", e);
+      console.error("Erreur chargement profil sidebar:", e);
     }
   };
 
@@ -105,20 +122,23 @@ export function DashboardSidebar() {
   return (
     <aside className="w-52 h-screen bg-slate-900 border-r border-slate-800 text-slate-300 flex flex-col shrink-0 sticky top-0 z-30 justify-between">
       <div>
-        {/* En-tête Compact */}
+        {/* En-tête Compact avec Nom d'Établissement */}
         <div className="p-3.5 border-b border-slate-800 flex items-center gap-2">
-          <div className="bg-emerald-500/10 text-emerald-400 p-1.5 rounded-md border border-emerald-500/20">
+          <div className="bg-emerald-500/10 text-emerald-400 p-1.5 rounded-md border border-emerald-500/20 shrink-0">
             <Sparkles className="size-4" />
           </div>
-          <div>
-            <h2 className="font-bold text-white tracking-tight text-xs">EDUTIME CI</h2>
-            <p className="text-[9px] text-slate-500 font-semibold uppercase">Normes MENA</p>
+          <div className="min-w-0 flex-1">
+            <h2 className="font-extrabold text-white tracking-tight text-xs">EDUTIME CI</h2>
+            <p className="text-[9px] text-emerald-400 font-bold uppercase truncate flex items-center gap-1 mt-0.5" title={schoolName || "Établissement"}>
+              <Building className="size-2.5 shrink-0" />
+              <span className="truncate">{schoolName || "Normes MENA"}</span>
+            </p>
           </div>
         </div>
 
         {/* Navigation */}
         <nav className="p-2 space-y-1 overflow-y-auto text-[11px] max-h-[calc(100vh-130px)]">
-          {/* Option SUPERADMIN si activé sur le compte */}
+          {/* Onglet SUPERADMIN si autorisé */}
           {isSuperAdmin && (
             <Link
               href="/superadmin"
