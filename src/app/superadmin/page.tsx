@@ -37,44 +37,37 @@ export default function SuperAdminConsole() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [planFilter, setPlanFilter] = useState("Tous");
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   useEffect(() => {
     verifySuperAdminAccess();
   }, []);
 
-  // GARDE D'ACCÈS DE SÉCURITÉ : Vérification stricte en Base de Données
   const verifySuperAdminAccess = async () => {
     try {
       setLoading(true);
       if (!supabase) return;
 
-      // 1. Récupérer l'utilisateur actuellement authentifié chez Supabase
       const { data: { user }, error: authError } = await supabase.auth.getUser();
 
       if (authError || !user) {
-        // Redirection si non connecté
         router.push("/login");
         return;
       }
 
-      // 2. Interroger la table profiles avec un typage explicite
       const { data, error: profileError } = await supabase
         .from("profiles")
         .select("is_superadmin")
         .eq("id", user.id)
         .single();
 
-      // Typage sécurisé pour TypeScript
       const profile = data as { is_superadmin: boolean } | null;
 
       if (profileError || !profile || !profile.is_superadmin) {
-        // Redirection immédiate si l'utilisateur est un simple censeur/utilisateur
-        console.warn("Accès refusé : L'utilisateur n'a pas les droits Superadmin.");
         router.push("/dashboard");
         return;
       }
 
-      // 3. Si l'utilisateur est un VRAI superadmin, charger la liste des écoles
       await fetchSchools();
     } catch (err) {
       console.error("Erreur de contrôle d'accès :", err);
@@ -100,7 +93,31 @@ export default function SuperAdminConsole() {
     }
   };
 
-  // Fonction d'infiltration (Impersonation)
+  // FONCTION POUR CHANGER LE PLAN DIRECTEMENT
+  const handlePlanChange = async (schoolId: string, newPlan: string) => {
+    try {
+      setUpdatingId(schoolId);
+      if (!supabase) return;
+
+      const { error } = await supabase
+        .from("profiles")
+        .update({ subscription_plan: newPlan })
+        .eq("id", schoolId);
+
+      if (error) throw error;
+
+      // Mettre à jour la liste locale
+      setSchools((prev) =>
+        prev.map((s) => (s.id === schoolId ? { ...s, subscription_plan: newPlan } : s))
+      );
+    } catch (err) {
+      console.error("Erreur lors du changement de plan :", err);
+      alert("Impossible de modifier le plan.");
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
   const handleInfiltrer = (school: ProfileRow) => {
     const targetProfile = {
       schoolName: school.school_name,
@@ -125,7 +142,6 @@ export default function SuperAdminConsole() {
     }
   };
 
-  // Filtres de recherche
   const filteredSchools = schools.filter((s) => {
     const matchesSearch = 
       s.school_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -139,7 +155,6 @@ export default function SuperAdminConsole() {
 
   return (
     <div className="min-h-screen bg-[#090d16] text-slate-100 font-sans pb-12">
-      {/* Barre supérieure d'administration */}
       <header className="bg-[#0f172a] border-b border-[#1e293b] px-6 py-4 flex items-center justify-between shadow-md">
         <div className="flex items-center gap-3">
           <div className="bg-amber-500/10 text-amber-500 text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded border border-amber-500/20">
@@ -184,9 +199,11 @@ export default function SuperAdminConsole() {
                 <Coins className="size-5" />
               </div>
               <div>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Revenu Estimé</p>
-                <h3 className="text-2xl font-black mt-0.5">0 FCFA</h3>
-                <p className="text-[9px] text-slate-500 mt-0.5 font-medium">Basé sur les formules annuelles</p>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Abonnements Payants</p>
+                <h3 className="text-2xl font-black mt-0.5">
+                  {schools.filter((s) => s.subscription_plan !== "free").length}
+                </h3>
+                <p className="text-[9px] text-slate-500 mt-0.5 font-medium">Formules Starter & Pro activées</p>
               </div>
             </CardContent>
           </Card>
@@ -197,9 +214,11 @@ export default function SuperAdminConsole() {
                 <SlidersHorizontal className="size-5" />
               </div>
               <div>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Abonnements Pro / Ent</p>
-                <h3 className="text-2xl font-black mt-0.5">0</h3>
-                <p className="text-[9px] text-slate-500 mt-0.5 font-medium">Ratio de conversion : 0%</p>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Formule Pro</p>
+                <h3 className="text-2xl font-black mt-0.5">
+                  {schools.filter((s) => s.subscription_plan === "pro").length}
+                </h3>
+                <p className="text-[9px] text-slate-500 mt-0.5 font-medium">Formules Pro actives</p>
               </div>
             </CardContent>
           </Card>
@@ -212,14 +231,14 @@ export default function SuperAdminConsole() {
               <div>
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Statut Supabase</p>
                 <h3 className="text-sm font-bold text-emerald-400 mt-2 flex items-center gap-1.5 bg-emerald-500/5 px-2.5 py-1 rounded border border-emerald-500/10 w-fit">
-                  <Activity className="size-3.5 animate-pulse" /> CONFORMITÉ RLS OK
+                  <Activity className="size-3.5 animate-pulse" /> CONFORMITÉ OK
                 </h3>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Barre d'outils et de filtres */}
+        {/* Barre de recherche */}
         <div className="flex flex-col sm:flex-row gap-4 items-center justify-between bg-[#0f172a] border border-[#1e293b] p-4 rounded-xl shadow-xs">
           <div className="relative w-full sm:max-w-md">
             <Search className="absolute left-3 top-2.5 size-4 text-slate-500" />
@@ -249,7 +268,7 @@ export default function SuperAdminConsole() {
           </div>
         </div>
 
-        {/* Tableau Principal d'Administration */}
+        {/* Tableau avec menu déroulant pour changer le plan */}
         <Card className="bg-[#0f172a] border-[#1e293b] overflow-hidden shadow-lg">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
@@ -257,22 +276,21 @@ export default function SuperAdminConsole() {
                 <tr className="border-b border-[#1e293b] bg-[#131c32]/50 text-[10px] uppercase font-bold text-slate-400 tracking-wider">
                   <th className="px-6 py-4">Établissement</th>
                   <th className="px-6 py-4">Ville / Pays</th>
-                  <th className="px-6 py-4">Interlocuteur (Censeur)</th>
-                  <th className="px-6 py-4">Formule d&apos;abonnement</th>
-                  <th className="px-6 py-4">Date de création</th>
+                  <th className="px-6 py-4">Interlocuteur</th>
+                  <th className="px-6 py-4">Changer la Formule</th>
                   <th className="px-6 py-4 text-center">Actions Globales</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#1e293b] text-xs text-slate-300">
                 {loading ? (
                   <tr>
-                    <td colSpan={6} className="text-center py-8 text-slate-500 font-medium">
+                    <td colSpan={5} className="text-center py-8 text-slate-500 font-medium">
                       Vérification des accès et chargement des données...
                     </td>
                   </tr>
                 ) : filteredSchools.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="text-center py-8 text-slate-500 font-medium">
+                    <td colSpan={5} className="text-center py-8 text-slate-500 font-medium">
                       Aucun établissement ne correspond aux critères.
                     </td>
                   </tr>
@@ -290,12 +308,23 @@ export default function SuperAdminConsole() {
                         {school.contact_name}
                       </td>
                       <td className="px-6 py-4">
-                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#090d16] border border-[#1e293b] text-slate-400">
-                          {school.subscription_plan}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-slate-500 font-mono text-[11px]">
-                        {school.created_at ? new Date(school.created_at).toLocaleDateString() : "19/07/2026"}
+                        {/* MENU DÉROULANT INTERACTIF */}
+                        <select
+                          value={school.subscription_plan || "free"}
+                          disabled={updatingId === school.id}
+                          onChange={(e) => handlePlanChange(school.id, e.target.value)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold border focus:outline-none transition-all cursor-pointer ${
+                            school.subscription_plan === "pro"
+                              ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                              : school.subscription_plan === "starter"
+                              ? "bg-sky-500/10 text-sky-400 border-sky-500/30"
+                              : "bg-slate-900 text-slate-400 border-slate-800"
+                          }`}
+                        >
+                          <option value="free" className="bg-[#0f172a] text-slate-300">Free (Gratuit)</option>
+                          <option value="starter" className="bg-[#0f172a] text-sky-400 font-bold">Starter (15 000 FCFA)</option>
+                          <option value="pro" className="bg-[#0f172a] text-amber-400 font-bold">Pro (35 000 FCFA)</option>
+                        </select>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center justify-center gap-2">
