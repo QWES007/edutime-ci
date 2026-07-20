@@ -30,7 +30,7 @@ export default function LoginPage() {
     e.preventDefault();
     
     if (!supabase) {
-      setErrorMsg("Le service d&apos;authentification n&apos;est pas disponible.");
+      setErrorMsg("Le service d'authentification n'est pas disponible.");
       return;
     }
 
@@ -46,6 +46,11 @@ export default function LoginPage() {
       if (error) throw error;
 
       if (data?.user) {
+        // Nettoyage du localStorage pour éviter tout conflit d'infiltration/session résiduelle
+        localStorage.removeItem("edutime_is_impersonating");
+        localStorage.removeItem("edutime_profile");
+        localStorage.removeItem("edutime_admin_view_active");
+
         router.push("/dashboard");
         router.refresh();
       }

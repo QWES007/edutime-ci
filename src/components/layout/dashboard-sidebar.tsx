@@ -24,39 +24,59 @@ export function DashboardSidebar() {
   const [schoolData, setSchoolData] = useState({
     schoolName: "Chargement...",
     city: "...",
-    isSuperAdmin: false
+    isSuperAdmin: false,
   });
-  
+
   const [isImpersonating, setIsImpersonating] = useState(false);
 
   useEffect(() => {
+    checkUserRoleAndProfile();
+  }, [pathname]);
+
+  const checkUserRoleAndProfile = async () => {
+    if (!supabase) return;
+
+    // 1. Détection du mode infiltration
     const impersonating = localStorage.getItem("edutime_is_impersonating") === "true";
     setIsImpersonating(impersonating);
 
-    const savedProfile = localStorage.getItem("edutime_profile");
-    if (savedProfile) {
-      const profile = JSON.parse(savedProfile);
-      setSchoolData({
-        schoolName: profile.schoolName || profile.school_name,
-        city: profile.city,
-        isSuperAdmin: localStorage.getItem("edutime_admin_view_active") === "true"
-      });
+    // 2. Si on est en mode infiltration, charger l'établissement simulé
+    if (impersonating) {
+      const savedProfile = localStorage.getItem("edutime_profile");
+      if (savedProfile) {
+        const profile = JSON.parse(savedProfile);
+        setSchoolData({
+          schoolName: profile.schoolName || profile.school_name,
+          city: profile.city || "Abidjan",
+          isSuperAdmin: true, // Le superadmin conserve son droit de retour
+        });
+        return;
+      }
     }
-  }, [pathname]);
+
+    // 3. Sinon, vérifier le VRAI utilisateur connecté depuis Supabase Auth & Profiles
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (user) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("school_name, city, is_superadmin")
+        .eq("id", user.id)
+        .single();
+
+      if (profile) {
+        setSchoolData({
+          schoolName: profile.school_name || "Établissement",
+          city: profile.city || "Abidjan",
+          isSuperAdmin: Boolean(profile.is_superadmin),
+        });
+      }
+    }
+  };
 
   const handleStopImpersonation = () => {
-    const adminProfile = {
-      schoolName: "Console Super Admin",
-      city: "Abidjan",
-      contactName: "Super Admin (Propriétaire)",
-      contactEmail: "sweetqwes@gmail.com",
-      subscriptionPlan: "Enterprise"
-    };
-    
-    localStorage.setItem("edutime_profile", JSON.stringify(adminProfile));
-    localStorage.setItem("edutime_admin_view_active", "true");
-    localStorage.setItem("edutime_is_impersonating", "false");
-    
+    localStorage.removeItem("edutime_is_impersonating");
+    localStorage.removeItem("edutime_profile");
     setIsImpersonating(false);
     router.push("/superadmin");
     router.refresh();
@@ -70,7 +90,6 @@ export function DashboardSidebar() {
 
   return (
     <>
-      {/* LE BANDEAU ORANGE PASSE EN POSITION ABSOLUE/FIXE POUR NE PLUS POUSSER LE LAYOUT */}
       {isImpersonating && (
         <div className="fixed top-0 left-0 right-0 h-10 bg-amber-500 text-slate-950 font-bold text-xs px-6 flex items-center justify-between shadow-md z-50">
           <div className="flex items-center gap-2">
@@ -82,21 +101,15 @@ export function DashboardSidebar() {
           </div>
           <button 
             onClick={handleStopImpersonation}
-            className="bg-[#0f172a] hover:bg-slate-800 text-white font-bold text-[10px] uppercase tracking-wider px-3 py-1 transition-colors rounded-md"
+            className="bg-[#0f172a] hover:bg-slate-800 text-white font-bold text-[10px] uppercase tracking-wider px-3 py-1 transition-colors rounded-md cursor-pointer"
           >
             &larr; Quitter et retourner au Super Admin
           </button>
         </div>
       )}
 
-      {/* LA SIDEBAR REPREND SA HAUTEUR PROPRE SANS SUBIR DE DÉFORMATION */}
-      <div 
-        className={`w-64 bg-[#0f172a] text-slate-100 p-4 flex flex-col justify-between border-r border-[#1e293b] min-h-screen ${
-          isImpersonating ? "pt-14" : ""
-        }`}
-      >
+      <div className={`w-64 bg-[#0f172a] text-slate-100 p-4 flex flex-col justify-between border-r border-[#1e293b] min-h-screen ${isImpersonating ? "pt-14" : ""}`}>
         <div className="space-y-6">
-          {/* Badge Profil Établissement Dynamique */}
           <div className="bg-slate-950/60 border border-[#1e293b]/40 p-3 rounded-lg flex items-center gap-2.5">
             <div className="bg-sky-400/10 text-sky-400 p-2 rounded-md">
               <Home className="w-4 h-4" />
@@ -107,7 +120,6 @@ export function DashboardSidebar() {
             </div>
           </div>
 
-          {/* Navigation */}
           <nav className="space-y-1">
             <Link href="/dashboard" className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${pathname === "/dashboard" ? "bg-sky-500 text-[#0f172a] font-bold" : "text-slate-400 hover:text-white"}`}>
               <LayoutDashboard className="w-4 h-4" /> Tableau de bord
@@ -131,15 +143,15 @@ export function DashboardSidebar() {
               <Settings className="w-4 h-4" /> Paramètres
             </Link>
 
+            {/* Le bouton apparaît UNIQUEMENT si is_superadmin vaut TRUE en BD */}
             {schoolData.isSuperAdmin && (
-              <Link href="/superadmin" className="flex items-center gap-2.5 px-3 py-2 mt-4 rounded-lg text-xs font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+              <Link href="/superadmin" className="flex items-center gap-2.5 px-3 py-2 mt-4 rounded-lg text-xs font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-all">
                 <ShieldCheck className="w-4 h-4" /> Superadmin
               </Link>
             )}
           </nav>
         </div>
 
-        {/* Pied de la Sidebar */}
         <button onClick={handleLogout} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-rose-400 hover:bg-rose-500/10 transition-colors">
           <LogOut className="w-4 h-4" /> Déconnexion
         </button>

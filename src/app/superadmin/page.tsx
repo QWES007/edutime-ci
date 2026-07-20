@@ -26,6 +26,7 @@ interface ProfileRow {
   contact_name: string;
   subscription_plan: string;
   created_at?: string;
+  is_superadmin?: boolean;
 }
 
 export default function SuperAdminConsole() {
@@ -38,12 +39,50 @@ export default function SuperAdminConsole() {
   const [planFilter, setPlanFilter] = useState("Tous");
 
   useEffect(() => {
-    fetchSchools();
+    verifySuperAdminAccess();
   }, []);
+
+  // GARDE D'ACCÈS DE SÉCURITÉ : Vérification stricte en Base de Données
+  const verifySuperAdminAccess = async () => {
+    try {
+      setLoading(true);
+      if (!supabase) return;
+
+      // 1. Récupérer l'utilisateur actuellement authentifié chez Supabase
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+      if (authError || !user) {
+        // Redirection si non connecté
+        router.push("/login");
+        return;
+      }
+
+      // 2. Interroger la table profiles pour vérifier le booléen is_superadmin
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("is_superadmin")
+        .eq("id", user.id)
+        .single();
+
+      if (profileError || !profile || !profile.is_superadmin) {
+        // Redirection immédiate si l'utilisateur est un simple censeur/utilisateur
+        console.warn("Accès refusé : L'utilisateur n'a pas les droits Superadmin.");
+        router.push("/dashboard");
+        return;
+      }
+
+      // 3. Si l'utilisateur est un VRAI superadmin, charger la liste des écoles
+      await fetchSchools();
+    } catch (err) {
+      console.error("Erreur de contrôle d'accès :", err);
+      router.push("/dashboard");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const fetchSchools = async () => {
     try {
-      setLoading(true);
       if (!supabase) return;
       
       const { data, error } = await supabase
@@ -54,15 +93,12 @@ export default function SuperAdminConsole() {
       if (error) throw error;
       setSchools(data || []);
     } catch (err) {
-      console.error("Erreur lors de la récupération des écoles:", err);
-    } finally {
-      setLoading(false);
+      console.error("Erreur lors de la récupération des écoles :", err);
     }
   };
 
   // Fonction d'infiltration (Impersonation)
   const handleInfiltrer = (school: ProfileRow) => {
-    // 1. On stocke le profil de l'établissement infiltré
     const targetProfile = {
       schoolName: school.school_name,
       city: school.city,
@@ -72,15 +108,14 @@ export default function SuperAdminConsole() {
     };
     
     localStorage.setItem("edutime_profile", JSON.stringify(targetProfile));
-    localStorage.setItem("edutime_admin_view_active", "false");
     localStorage.setItem("edutime_is_impersonating", "true");
     
-    // 2. Redirection immédiate vers le dashboard de l'école infiltrée
     router.push("/dashboard");
     router.refresh();
   };
 
   const handleLogout = async () => {
+    localStorage.clear();
     if (supabase) {
       await supabase.auth.signOut();
       router.push("/login");
@@ -117,7 +152,7 @@ export default function SuperAdminConsole() {
             onClick={handleLogout} 
             variant="ghost" 
             size="sm" 
-            className="text-slate-400 hover:text-white hover:bg-slate-800 text-xs font-bold gap-2"
+            className="text-slate-400 hover:text-white hover:bg-slate-800 text-xs font-bold gap-2 cursor-pointer"
           >
             <LogOut className="size-4" /> Se Déconnecter
           </Button>
@@ -125,7 +160,7 @@ export default function SuperAdminConsole() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8 space-y-8">
-        {/* Les 4 Cartes de Statistiques Premium */}
+        {/* Cartes de Statistiques */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <Card className="bg-[#0f172a] border-[#1e293b] text-slate-200 shadow-sm">
             <CardContent className="p-5 flex items-center gap-4">
@@ -205,7 +240,7 @@ export default function SuperAdminConsole() {
               <option value="pro">Formule Pro</option>
             </select>
             
-            <Button size="sm" variant="secondary" className="bg-amber-500 text-slate-950 hover:bg-amber-400 font-bold text-xs gap-1.5">
+            <Button size="sm" variant="secondary" className="bg-amber-500 text-slate-950 hover:bg-amber-400 font-bold text-xs gap-1.5 cursor-pointer">
               <Download className="size-3.5" /> Export
             </Button>
           </div>
@@ -228,11 +263,15 @@ export default function SuperAdminConsole() {
               <tbody className="divide-y divide-[#1e293b] text-xs text-slate-300">
                 {loading ? (
                   <tr>
-                    <td colSpan={6} className="text-center py-8 text-slate-500">Chargement des données en cours...</td>
+                    <td colSpan={6} className="text-center py-8 text-slate-500 font-medium">
+                      Vérification des accès et chargement des données...
+                    </td>
                   </tr>
                 ) : filteredSchools.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="text-center py-8 text-slate-500">Aucun établissement ne correspond aux critères.</td>
+                    <td colSpan={6} className="text-center py-8 text-slate-500 font-medium">
+                      Aucun établissement ne correspond aux critères.
+                    </td>
                   </tr>
                 ) : (
                   filteredSchools.map((school) => (
@@ -260,14 +299,14 @@ export default function SuperAdminConsole() {
                           <Button
                             size="sm"
                             onClick={() => handleInfiltrer(school)}
-                            className="bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-bold px-3 py-1 h-7 gap-1 shadow-xs"
+                            className="bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-bold px-3 py-1 h-7 gap-1 shadow-xs cursor-pointer"
                           >
                             <Eye className="size-3.5" /> Infiltrer
                           </Button>
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="text-destructive hover:bg-destructive/10 size-7 p-0"
+                            className="text-destructive hover:bg-destructive/10 size-7 p-0 cursor-pointer"
                           >
                             <Trash2 className="size-4" />
                           </Button>
