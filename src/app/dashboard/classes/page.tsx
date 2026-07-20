@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { createClient } from "@/lib/supabase/client";
 import { Layers, Plus, FileSpreadsheet, Upload, Trash2, Save, Clock, BookOpen, ChevronRight, RotateCcw } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import * as XLSX from "xlsx";
@@ -20,7 +21,6 @@ const NIVEAUX_MENA = [
   "Tle A1", "Tle A2", "Tle C", "Tle D"
 ];
 
-// Matrice officielle exacte avec ajout de TICE (1h/semaine par défaut)
 const DEFAULT_MENA_HOURS: Record<string, Record<string, number>> = {
   "6ème": { "FR": 5, "MATHS": 4, "ANG": 3, "HG": 2, "SVT": 1.5, "PC": 1.5, "EPS": 2, "EDHC": 1, "ARTS": 1, "TICE": 1 },
   "5ème": { "FR": 5, "MATHS": 4, "ANG": 3, "HG": 2, "SVT": 1.5, "PC": 1.5, "EPS": 2, "EDHC": 1, "ARTS": 1, "TICE": 1 },
@@ -38,74 +38,80 @@ const DEFAULT_MENA_HOURS: Record<string, Record<string, number>> = {
   "Tle D": { "SVT": 5, "PC": 5, "MATHS": 6, "FR": 3, "ANG": 2, "HG": 4, "PHILO": 3, "EPS": 2, "ARTS": 1, "TICE": 1 },
 };
 
-// Liste des matières incluant TICE
 const ALL_SUBJECTS = ["FR", "MATHS", "ANG", "LV2", "HG", "SVT", "PC", "PHILO", "EPS", "EDHC", "ARTS", "TICE"];
-
-// Coefficients des matières
-export const SUBJECT_COEFFICIENTS: Record<string, number> = {
-  "FR": 3,
-  "MATHS": 3,
-  "ANG": 2,
-  "LV2": 2,
-  "HG": 2,
-  "SVT": 2,
-  "PC": 2,
-  "PHILO": 3,
-  "EPS": 1,
-  "EDHC": 1,
-  "ARTS": 1,
-  "TICE": 1, // Coef 1
-};
-
-const LOCAL_STORAGE_KEY = "edutime_classes_list";
+const STORAGE_KEY = "edutime_classes_saas_v1";
 
 export default function ClassesPage() {
+  const supabase = createClient();
   const [entryMode, setEntryMode] = useState<"manual" | "excel">("manual");
   const [classes, setClasses] = useState<ClassGroup[]>([]);
-  const [isLoaded, setIsLoaded] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
 
   const [level, setLevel] = useState("6ème");
   const [name, setName] = useState("6ème 1");
   const [studentCount, setStudentCount] = useState(45);
   const [customHours, setCustomHours] = useState<Record<string, number>>(DEFAULT_MENA_HOURS["6ème"]);
-
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
 
+  // 1. DÉMARRAGE : Priorité absolue aux données de l'utilisateur
   useEffect(() => {
-    const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
+    const loadClassesData = async () => {
+      const savedLocal = localStorage.getItem(STORAGE_KEY);
+      if (savedLocal !== null) {
+        try {
+          const parsed = JSON.parse(savedLocal);
           setClasses(parsed);
-          setSelectedClassId(parsed[0].id);
-        } else {
-          loadDefaultClasses();
+          if (parsed.length > 0) setSelectedClassId(parsed[0].id);
+          setIsInitialized(true);
+          return;
+        } catch (e) {
+          console.error("Erreur de lecture du localStorage classes :", e);
         }
-      } catch (e) {
-        loadDefaultClasses();
       }
-    } else {
-      loadDefaultClasses();
-    }
-    setIsLoaded(true);
+
+      if (supabase) {
+        try {
+          const { data, error } = await (supabase.from("classes" as any) as any).select("*");
+          if (!error && data && data.length > 0) {
+            setClasses(data);
+            setSelectedClassId(data[0].id);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+            setIsInitialized(true);
+            return;
+          }
+        } catch (e) {
+          console.log("Supabase classes non disponible ou vide", e);
+        }
+      }
+
+      // Si vraiment première ouverture absolue
+      const initial: ClassGroup[] = [
+        { id: "c1", level: "6ème", name: "6ème 1", studentCount: 45, subjectHours: DEFAULT_MENA_HOURS["6ème"] },
+        { id: "c2", level: "3ème", name: "3ème 2", studentCount: 42, subjectHours: DEFAULT_MENA_HOURS["3ème"] },
+        { id: "c3", level: "Tle D", name: "Tle D1", studentCount: 38, subjectHours: DEFAULT_MENA_HOURS["Tle D"] },
+      ];
+      setClasses(initial);
+      setSelectedClassId("c1");
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(initial));
+      setIsInitialized(true);
+    };
+
+    loadClassesData();
   }, []);
 
-  const loadDefaultClasses = () => {
-    const initial: ClassGroup[] = [
-      { id: "c1", level: "6ème", name: "6ème 1", studentCount: 45, subjectHours: DEFAULT_MENA_HOURS["6ème"] },
-      { id: "c2", level: "3ème", name: "3ème 2", studentCount: 42, subjectHours: DEFAULT_MENA_HOURS["3ème"] },
-      { id: "c3", level: "Tle D", name: "Tle D1", studentCount: 38, subjectHours: DEFAULT_MENA_HOURS["Tle D"] },
-    ];
-    setClasses(initial);
-    setSelectedClassId("c1");
-  };
+  // Persistance SaaS garantie
+  const persistClasses = async (updated: ClassGroup[]) => {
+    setClasses(updated);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 
-  useEffect(() => {
-    if (isLoaded) {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(classes));
+    if (supabase) {
+      try {
+        await (supabase.from("classes" as any) as any).upsert(updated);
+      } catch (e) {
+        console.error("Erreur Supabase Classes :", e);
+      }
     }
-  }, [classes, isLoaded]);
+  };
 
   const handleLevelChange = (newLevel: string) => {
     setLevel(newLevel);
@@ -130,30 +136,31 @@ export default function ClassesPage() {
     });
 
     const newClass: ClassGroup = {
-      id: Date.now().toString(),
+      id: `c_${Date.now()}`,
       level,
       name,
       studentCount: Number(studentCount),
       subjectHours: activeSubjectHours,
     };
 
-    setClasses((prev) => [newClass, ...prev]);
+    const updated = [newClass, ...classes];
+    persistClasses(updated);
     setSelectedClassId(newClass.id);
   };
 
   const handleUpdateSelectedClassHour = (sub: string, delta: number) => {
     if (!selectedClassId) return;
 
-    setClasses((prev) =>
-      prev.map((c) => {
-        if (c.id !== selectedClassId) return c;
-        const updatedHours = { ...c.subjectHours };
-        const newHrs = Math.max(0, (updatedHours[sub] || 0) + delta);
-        if (newHrs <= 0) delete updatedHours[sub];
-        else updatedHours[sub] = newHrs;
-        return { ...c, subjectHours: updatedHours };
-      })
-    );
+    const updated = classes.map((c) => {
+      if (c.id !== selectedClassId) return c;
+      const updatedHours = { ...c.subjectHours };
+      const newHrs = Math.max(0, (updatedHours[sub] || 0) + delta);
+      if (newHrs <= 0) delete updatedHours[sub];
+      else updatedHours[sub] = newHrs;
+      return { ...c, subjectHours: updatedHours };
+    });
+
+    persistClasses(updated);
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -186,7 +193,7 @@ export default function ClassesPage() {
             }
 
             newClasses.push({
-              id: Date.now().toString() + Math.random().toString().slice(2, 6),
+              id: `c_excel_${Date.now()}_${index}`,
               name: className,
               level: classLevel,
               studentCount: isNaN(count) ? 40 : count,
@@ -196,15 +203,16 @@ export default function ClassesPage() {
         });
 
         if (newClasses.length > 0) {
-          setClasses((prev) => [...newClasses, ...prev]);
+          const merged = [...newClasses, ...classes];
+          persistClasses(merged);
           setSelectedClassId(newClasses[0].id);
           setEntryMode("manual");
-          alert(`${newClasses.length} classe(s) importée(s) avec succès !`);
+          alert(`${newClasses.length} classe(s) importée(s) et enregistrée(s) avec succès !`);
         } else {
           alert("Aucune classe valide trouvée.");
         }
       } catch (err) {
-        console.error("Erreur de lecture du fichier Excel", err);
+        console.error(err);
         alert("Erreur lors de la lecture du fichier Excel.");
       }
     };
@@ -213,10 +221,18 @@ export default function ClassesPage() {
   };
 
   const handleResetAllClasses = () => {
-    if (confirm("Êtes-vous sûr de vouloir tout effacer ? Toutes les classes de la liste seront supprimées.")) {
+    if (confirm("Attention : Voulez-vous vraiment TOUT effacer pour les classes ?")) {
       setClasses([]);
       setSelectedClassId(null);
-      localStorage.removeItem(LOCAL_STORAGE_KEY);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+
+      if (supabase) {
+        try {
+          (supabase.from("classes" as any) as any).delete().neq("id", "0");
+        } catch (e) {
+          console.error(e);
+        }
+      }
     }
   };
 
@@ -224,6 +240,10 @@ export default function ClassesPage() {
   const totalWeeklyHoursSelected = selectedClass
     ? Object.values(selectedClass.subjectHours).reduce((a, b) => a + b, 0)
     : 0;
+
+  if (!isInitialized) {
+    return <div className="p-8 text-xs text-slate-400">Chargement des divisions et classes...</div>;
+  }
 
   return (
     <div className="space-y-6">
@@ -420,8 +440,9 @@ export default function ClassesPage() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      setClasses((prev) => prev.filter((item) => item.id !== c.id));
-                      if (selectedClassId === c.id) setSelectedClassId(null);
+                      const filtered = classes.filter((item) => item.id !== c.id);
+                      persistClasses(filtered);
+                      if (selectedClassId === c.id) setSelectedClassId(filtered.length > 0 ? filtered[0].id : null);
                     }}
                     className="text-slate-500 hover:text-rose-400 p-1"
                   >

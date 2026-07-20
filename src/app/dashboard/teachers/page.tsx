@@ -39,62 +39,85 @@ const SLOTS = [
   { id: "A4", label: "A4 (16h - 17h)" },
 ];
 
+const STORAGE_KEY = "edutime_teachers_saas_v1";
+
 export default function TeachersPage() {
   const supabase = createClient();
-
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [selectedTeacherId, setSelectedTeacherId] = useState<string | null>(null);
   const [insertMode, setInsertMode] = useState<"manual" | "excel">("manual");
+  const [isInitialized, setIsInitialized] = useState(false);
   
   const [name, setName] = useState("");
   const [subject, setSubject] = useState("");
   const [weeklyHours, setWeeklyHours] = useState(18);
 
   useEffect(() => {
-    loadTeachers();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const loadTeachers = async () => {
-    try {
-      if (supabase) {
-        const { data, error } = await (supabase.from("teachers" as any) as any)
-          .select("*")
-          .order("name", { ascending: true });
-
-        if (!error && data && data.length > 0) {
-          setTeachers(data);
-          setSelectedTeacherId(data[0].id);
+    const loadTeachersData = async () => {
+      const savedLocal = localStorage.getItem(STORAGE_KEY);
+      if (savedLocal !== null) {
+        try {
+          const parsed = JSON.parse(savedLocal);
+          setTeachers(parsed);
+          if (parsed.length > 0) setSelectedTeacherId(parsed[0].id);
+          setIsInitialized(true);
           return;
+        } catch (e) {
+          console.error("Erreur de lecture du localStorage enseignants :", e);
         }
       }
-    } catch (e) {
-      console.log("Supabase non connecté, utilisation du stockage local.", e);
-    }
 
-    const saved = localStorage.getItem("edutime_teachers");
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      setTeachers(parsed);
-      if (parsed.length > 0) setSelectedTeacherId(parsed[0].id);
-    } else {
+      if (supabase) {
+        try {
+          const { data, error } = await (supabase.from("teachers" as any) as any)
+            .select("*")
+            .order("name", { ascending: true });
+
+          if (!error && data && data.length > 0) {
+            setTeachers(data);
+            setSelectedTeacherId(data[0].id);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+            setIsInitialized(true);
+            return;
+          }
+        } catch (e) {
+          console.log("Supabase teachers non disponible ou vide", e);
+        }
+      }
+
       const initial: Teacher[] = [
-        { id: "1", name: "M. Kouassi Koffi", subject: "MATHS", weekly_hours: 18, unavailabilities: {} },
-        { id: "2", name: "Mme Koné Aminata", subject: "MATHS", weekly_hours: 18, unavailabilities: {} },
-        { id: "3", name: "M. Gomez Paul", subject: "FR, PHILO", weekly_hours: 21, unavailabilities: { "Mardi-A1": "indisponible", "Mercredi-A1": "ce_up" } },
+        { id: "t1", name: "M. Kouassi Koffi", subject: "MATHS", weekly_hours: 18, unavailabilities: {} },
+        { id: "t2", name: "Mme Koné Aminata", subject: "MATHS", weekly_hours: 18, unavailabilities: {} },
+        { id: "t3", name: "M. Gomez Paul", subject: "FR, PHILO", weekly_hours: 21, unavailabilities: { "Mardi-A1": "indisponible" } },
       ];
       setTeachers(initial);
-      setSelectedTeacherId("1");
-      localStorage.setItem("edutime_teachers", JSON.stringify(initial));
+      setSelectedTeacherId("t1");
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(initial));
+      setIsInitialized(true);
+    };
+
+    loadTeachersData();
+  }, []);
+
+  const persistTeachers = async (updated: Teacher[]) => {
+    setTeachers(updated);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+
+    if (supabase) {
+      try {
+        await (supabase.from("teachers" as any) as any).upsert(updated);
+      } catch (e) {
+        console.error("Erreur Supabase Teachers :", e);
+      }
     }
   };
 
-  const handleAddTeacher = async (e: React.FormEvent) => {
+  const handleAddTeacher = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !subject) return;
 
     const newTeacher: Teacher = {
-      id: Date.now().toString(),
+      id: `t_${Date.now()}`,
       name,
       subject: subject.toUpperCase(),
       weekly_hours: Number(weeklyHours),
@@ -102,17 +125,8 @@ export default function TeachersPage() {
     };
 
     const updated = [...teachers, newTeacher];
-    setTeachers(updated);
+    persistTeachers(updated);
     setSelectedTeacherId(newTeacher.id);
-    localStorage.setItem("edutime_teachers", JSON.stringify(updated));
-
-    if (supabase) {
-      try {
-        await (supabase.from("teachers" as any) as any).insert([newTeacher]);
-      } catch (e) {
-        console.error(e);
-      }
-    }
 
     setName("");
     setSubject("");
@@ -124,7 +138,7 @@ export default function TeachersPage() {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = async (evt) => {
+    reader.onload = (evt) => {
       try {
         const bstr = evt.target?.result;
         const wb = XLSX.read(bstr, { type: "binary" });
@@ -143,24 +157,14 @@ export default function TeachersPage() {
           }));
 
         if (importedTeachers.length === 0) {
-          alert("Aucun enseignant valide trouvé. Vérifiez les entêtes de colonnes ('Nom', 'Discipline', 'Heures').");
+          alert("Aucun enseignant valide trouvé. Vérifiez les colonnes 'Nom', 'Discipline', 'Heures'.");
           return;
         }
 
-        const updated = [...teachers, ...importedTeachers];
-        setTeachers(updated);
+        const merged = [...teachers, ...importedTeachers];
+        persistTeachers(merged);
         if (importedTeachers.length > 0) setSelectedTeacherId(importedTeachers[0].id);
-        localStorage.setItem("edutime_teachers", JSON.stringify(updated));
-
-        if (supabase) {
-          try {
-            await (supabase.from("teachers" as any) as any).insert(importedTeachers);
-          } catch (err) {
-            console.error("Erreur d'insertion Supabase Excel :", err);
-          }
-        }
-
-        alert(`${importedTeachers.length} enseignant(s) importé(s) avec succès !`);
+        alert(`${importedTeachers.length} enseignant(s) importé(s) et sauvegardé(s) avec succès !`);
         setInsertMode("manual");
       } catch (err) {
         console.error(err);
@@ -170,49 +174,42 @@ export default function TeachersPage() {
     reader.readAsBinaryString(file);
   };
 
-  const handleDeleteTeacher = async (id: string) => {
+  const handleDeleteTeacher = (id: string) => {
     const updated = teachers.filter((t) => t.id !== id);
-    setTeachers(updated);
+    persistTeachers(updated);
     if (selectedTeacherId === id) {
       setSelectedTeacherId(updated.length > 0 ? updated[0].id : null);
     }
-    localStorage.setItem("edutime_teachers", JSON.stringify(updated));
 
     if (supabase) {
       try {
-        await (supabase.from("teachers" as any) as any).delete().eq("id", id);
+        (supabase.from("teachers" as any) as any).delete().eq("id", id);
       } catch (e) {
         console.error(e);
       }
     }
   };
 
-  const handleResetTeachers = async () => {
-    if (!confirm("Attention : Voulez-vous vraiment réinitialiser et tout effacer dans la liste des enseignants ?")) {
-      return;
-    }
+  const handleResetTeachers = () => {
+    if (confirm("Attention : Voulez-vous vraiment TOUT effacer pour les enseignants ?")) {
+      setTeachers([]);
+      setSelectedTeacherId(null);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
 
-    setTeachers([]);
-    setSelectedTeacherId(null);
-    localStorage.removeItem("edutime_teachers");
-    localStorage.removeItem("teachers");
-
-    if (supabase) {
-      try {
-        await (supabase.from("teachers" as any) as any).delete().neq("id", "0");
-      } catch (e) {
-        console.error("Erreur réinitialisation Supabase :", e);
+      if (supabase) {
+        try {
+          (supabase.from("teachers" as any) as any).delete().neq("id", "0");
+        } catch (e) {
+          console.error(e);
+        }
       }
     }
-
-    window.location.reload();
   };
 
-  const handleSlotClick = async (day: string, slotId: string) => {
+  const handleSlotClick = (day: string, slotId: string) => {
     if (!selectedTeacherId) return;
 
     const slotKey = `${day}-${slotId}`;
-
     const updatedTeachers = teachers.map((t) => {
       if (t.id !== selectedTeacherId) return t;
 
@@ -238,22 +235,14 @@ export default function TeachersPage() {
       return { ...t, unavailabilities: newUnavail };
     });
 
-    setTeachers(updatedTeachers);
-    localStorage.setItem("edutime_teachers", JSON.stringify(updatedTeachers));
-
-    if (supabase) {
-      try {
-        const selected = updatedTeachers.find((t) => t.id === selectedTeacherId);
-        await (supabase.from("teachers" as any) as any)
-          .update({ unavailabilities: selected?.unavailabilities })
-          .eq("id", selectedTeacherId);
-      } catch (e) {
-        console.error(e);
-      }
-    }
+    persistTeachers(updatedTeachers);
   };
 
   const selectedTeacher = teachers.find((t) => t.id === selectedTeacherId);
+
+  if (!isInitialized) {
+    return <div className="p-8 text-xs text-slate-400">Chargement des enseignants...</div>;
+  }
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
@@ -278,7 +267,7 @@ export default function TeachersPage() {
                     size="sm" 
                     variant="outline" 
                     onClick={handleResetTeachers}
-                    className="text-[10px] h-7 gap-1 text-rose-500 border-rose-200 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                    className="text-[10px] h-7 gap-1 text-rose-500 border-rose-200 hover:bg-rose-50"
                   >
                     <RotateCcw className="size-3" /> Réinitialiser
                   </Button>
@@ -304,7 +293,7 @@ export default function TeachersPage() {
 
               {insertMode === "excel" ? (
                 <div className="space-y-4">
-                  <div className="border-2 border-dashed border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-950/20 rounded-xl p-6 text-center hover:bg-emerald-50 transition-colors relative cursor-pointer group">
+                  <div className="border-2 border-dashed border-emerald-500/30 bg-emerald-50/50 rounded-xl p-6 text-center hover:bg-emerald-50 transition-colors relative cursor-pointer group">
                     <input 
                       type="file" 
                       accept=".xlsx, .xls, .csv" 
@@ -312,16 +301,7 @@ export default function TeachersPage() {
                       className="absolute inset-0 opacity-0 cursor-pointer" 
                     />
                     <Upload className="size-8 mx-auto text-emerald-600 mb-2" />
-                    <p className="text-xs font-bold text-slate-800 dark:text-slate-200">Glissez votre fichier Excel ou CSV ici</p>
-                    <p className="text-[10px] text-slate-500 mt-1">Formats acceptés: .xlsx, .xls, .csv</p>
-                  </div>
-                  <div className="bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-3 rounded-lg text-[10px] text-slate-500 space-y-1">
-                    <span className="font-bold text-slate-700 dark:text-slate-300 block">Colonnes acceptées dans Excel :</span>
-                    <ul className="list-disc pl-4 space-y-0.5">
-                      <li><strong>Nom</strong> ou <strong>Enseignant</strong> (ex: M. Koffi Paul).</li>
-                      <li><strong>Discipline</strong> ou <strong>Matiere</strong> (ex: MATHS, FR).</li>
-                      <li><strong>Heures</strong> ou <strong>Volume</strong> (ex: 18).</li>
-                    </ul>
+                    <p className="text-xs font-bold text-slate-800">Glissez votre fichier Excel ou CSV ici</p>
                   </div>
                 </div>
               ) : (
@@ -376,7 +356,7 @@ export default function TeachersPage() {
                   onClick={() => setSelectedTeacherId(t.id)}
                   className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
                     isSelected
-                      ? "border-emerald-500 bg-emerald-500/10 dark:bg-emerald-950/20 shadow-sm"
+                      ? "border-emerald-500 bg-emerald-500/10 shadow-sm"
                       : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300"
                   }`}
                 >
@@ -429,7 +409,7 @@ export default function TeachersPage() {
 
                 <div className="flex items-center gap-3 text-[10px] font-semibold">
                   <span className="flex items-center gap-1 text-slate-600 dark:text-slate-400">
-                    <span className="size-2.5 rounded bg-slate-100 dark:bg-slate-800 border" /> Dispo
+                    <span className="size-2.5 rounded bg-slate-100 border" /> Dispo
                   </span>
                   <span className="flex items-center gap-1 text-rose-600">
                     <span className="size-2.5 rounded bg-rose-500" /> Indispo
@@ -457,8 +437,8 @@ export default function TeachersPage() {
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                       {SLOTS.map((slot) => (
-                        <tr key={slot.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20">
-                          <td className="py-2 px-2 text-left font-semibold text-[10px] text-slate-500 border-r dark:border-slate-800">
+                        <tr key={slot.id} className="hover:bg-slate-50/50">
+                          <td className="py-2 px-2 text-left font-semibold text-[10px] text-slate-500 border-r">
                             {slot.label}
                           </td>
                           {DAYS.map((day) => {
@@ -472,22 +452,14 @@ export default function TeachersPage() {
                                   onClick={() => handleSlotClick(day, slot.id)}
                                   className={`w-full h-8 rounded-md font-bold text-[10px] transition-all border flex items-center justify-center gap-1 cursor-pointer ${
                                     status === "indisponible"
-                                      ? "bg-rose-500/15 border-rose-500/40 text-rose-600 dark:text-rose-400 shadow-xs"
+                                      ? "bg-rose-500/15 border-rose-500/40 text-rose-600 shadow-xs"
                                       : status === "ce_up"
-                                      ? "bg-amber-500/15 border-amber-500/40 text-amber-600 dark:text-amber-400 shadow-xs"
+                                      ? "bg-amber-500/15 border-amber-500/40 text-amber-600 shadow-xs"
                                       : "bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800 text-slate-400 hover:border-slate-300"
                                   }`}
                                 >
-                                  {status === "indisponible" && (
-                                    <>
-                                      <XCircle className="size-3" /> Indisponible
-                                    </>
-                                  )}
-                                  {status === "ce_up" && (
-                                    <>
-                                      <AlertCircle className="size-3" /> CE/UP
-                                    </>
-                                  )}
+                                  {status === "indisponible" && <XCircle className="size-3 text-rose-600" />}
+                                  {status === "ce_up" && <AlertCircle className="size-3 text-amber-600" />}
                                   {!status && <span className="opacity-0 hover:opacity-100 text-slate-400">+</span>}
                                 </button>
                               </td>

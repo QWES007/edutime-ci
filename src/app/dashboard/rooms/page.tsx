@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { createClient } from "@/lib/supabase/client";
 import { DashboardHeader } from "@/components/layout/dashboard-sidebar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -16,30 +17,78 @@ interface Room {
   capacity: number;
 }
 
-const SEED_ROOMS: Room[] = [
-  { id: "r1", name: "Salle 01", type: "Standard", capacity: 50 },
-  { id: "r2", name: "Labo Physique", type: "Laboratoire", capacity: 40 },
-];
+const STORAGE_KEY = "edutime_rooms_saas_v1";
 
 export default function RoomsPage() {
+  const supabase = createClient();
   const [rooms, setRooms] = useState<Room[]>([]);
   const [roomName, setRoomName] = useState("");
   const [roomType, setRoomType] = useState("Standard");
   const [capacity, setCapacity] = useState(50);
   const [insertMode, setInsertMode] = useState<"manual" | "excel">("manual");
+  const [isInitialized, setIsInitialized] = useState(false);
 
+  // 1. Chargement au démarrage : PRIORITÉ STRICTE aux données sauvegardées
   useEffect(() => {
-    const saved = localStorage.getItem("edutime_rooms_live");
-    if (saved) {
-      setRooms(JSON.parse(saved));
-    } else {
-      setRooms(SEED_ROOMS);
-    }
+    const loadRoomsData = async () => {
+      // Étape A : Vérification du LocalStorage
+      const savedLocal = localStorage.getItem(STORAGE_KEY);
+      if (savedLocal !== null) {
+        try {
+          const parsed = JSON.parse(savedLocal);
+          setRooms(parsed);
+          setIsInitialized(true);
+          return;
+        } catch (e) {
+          console.error("Erreur de lecture du localStorage :", e);
+        }
+      }
+
+      // Étape B : Tentative Supabase si LocalStorage vide
+      if (supabase) {
+        try {
+          const { data, error } = await (supabase.from("rooms" as any) as any)
+            .select("*")
+            .order("name", { ascending: true });
+
+          if (!error && data && data.length > 0) {
+            setRooms(data);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+            setIsInitialized(true);
+            return;
+          }
+        } catch (e) {
+          console.log("Supabase non disponible ou vide", e);
+        }
+      }
+
+      // Étape C : Première connexion absolue (si RIEN n'a jamais été enregistré)
+      const initialSeed: Room[] = [
+        { id: "r1", name: "Salle 01", type: "Standard", capacity: 50 },
+        { id: "r2", name: "Labo Physique", type: "Laboratoire", capacity: 40 },
+      ];
+      setRooms(initialSeed);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(initialSeed));
+      setIsInitialized(true);
+    };
+
+    loadRoomsData();
   }, []);
 
-  const saveRooms = (updated: Room[]) => {
-    setRooms(updated);
-    localStorage.setItem("edutime_rooms_live", JSON.stringify(updated));
+  // Fonction de persistance centralisée
+  const persistRooms = async (updatedRooms: Room[]) => {
+    setRooms(updatedRooms);
+    // Sauvegarde locale instantanée (survie au rafraîchissement)
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedRooms));
+
+    // Sauvegarde Supabase en arrière-plan
+    if (supabase) {
+      try {
+        await (supabase.from("rooms" as any) as any).upsert(updatedRooms);
+      } catch (err) {
+        console.error("Erreur de synchronisation Supabase :", err);
+      }
+    }
   };
 
   const handleAddRoom = (e: React.FormEvent) => {
@@ -48,12 +97,12 @@ export default function RoomsPage() {
 
     const newRoom: Room = {
       id: `r_${Date.now()}`,
-      name: roomName,
+      name: roomName.trim(),
       type: roomType,
       capacity: Number(capacity),
     };
 
-    saveRooms([newRoom, ...rooms]);
+    persistRooms([newRoom, ...rooms]);
     setRoomName("");
   };
 
@@ -72,22 +121,21 @@ export default function RoomsPage() {
 
         const importedRooms: Room[] = data
           .filter((row) => row.Salle || row.Nom)
-          .map((row, index) => {
-            return {
-              id: `r_excel_${Date.now()}_${index}`,
-              name: String(row.Salle || row.Nom).trim(),
-              type: String(row.Type || "Standard").trim(),
-              capacity: Number(row.Capacite || row.Capacité || row.Places) || 50,
-            };
-          });
+          .map((row, index) => ({
+            id: `r_excel_${Date.now()}_${index}`,
+            name: String(row.Salle || row.Nom).trim(),
+            type: String(row.Type || "Standard").trim(),
+            capacity: Number(row.Capacite || row.Capacité || row.Places) || 50,
+          }));
 
         if (importedRooms.length === 0) {
           alert("Aucun local valide trouvé. Vérifiez les colonnes 'Salle' et 'Capacité'.");
           return;
         }
 
-        saveRooms([...importedRooms, ...rooms]);
-        alert(`${importedRooms.length} local/locaux importé(s) !`);
+        const merged = [...importedRooms, ...rooms];
+        persistRooms(merged);
+        alert(`${importedRooms.length} local/locaux importé(s) et sauvegardé(s) avec succès !`);
         setInsertMode("manual");
       } catch (err) {
         console.error(err);
@@ -99,18 +147,37 @@ export default function RoomsPage() {
 
   const handleDeleteRoom = (id: string) => {
     if (window.confirm("Supprimer cette salle physique ?")) {
-      saveRooms(rooms.filter((r) => r.id !== id));
+      const filtered = rooms.filter((r) => r.id !== id);
+      persistRooms(filtered);
+
+      if (supabase) {
+        try {
+          (supabase.from("rooms" as any) as any).delete().eq("id", id);
+        } catch (e) {
+          console.error(e);
+        }
+      }
     }
   };
 
   const handleResetRooms = () => {
-    if (window.confirm("Attention : Voulez-vous vraiment réinitialiser toutes les salles physiques ?")) {
+    if (window.confirm("Attention : Voulez-vous vraiment TOUT effacer pour les salles ?")) {
       setRooms([]);
-      localStorage.removeItem("edutime_rooms_live");
-      localStorage.removeItem("edutime_rooms");
-      localStorage.removeItem("rooms");
+      localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+
+      if (supabase) {
+        try {
+          (supabase.from("rooms" as any) as any).delete().neq("id", "0");
+        } catch (e) {
+          console.error(e);
+        }
+      }
     }
   };
+
+  if (!isInitialized) {
+    return <div className="p-8 text-xs text-slate-400">Chargement des locaux...</div>;
+  }
 
   return (
     <div className="flex-1 space-y-6 p-8 pt-6">
@@ -124,7 +191,6 @@ export default function RoomsPage() {
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between border-b pb-2">
               <span className="text-sm font-bold text-slate-700">Locaux</span>
-              
               <div className="flex items-center gap-2">
                 <Button
                   type="button"
@@ -132,7 +198,6 @@ export default function RoomsPage() {
                   size="sm"
                   onClick={handleResetRooms}
                   className="h-7 text-[10px] text-rose-500 border-rose-200 hover:bg-rose-50"
-                  title="Tout effacer"
                 >
                   <RotateCcw className="size-3 mr-1" /> Réinitialiser
                 </Button>
@@ -183,14 +248,6 @@ export default function RoomsPage() {
                   <input type="file" accept=".xlsx, .xls, .csv" onChange={handleExcelImport} className="absolute inset-0 opacity-0 cursor-pointer" />
                   <Upload className="size-8 mx-auto text-muted-foreground group-hover:text-primary mb-2" />
                   <p className="text-xs font-bold">Glissez votre fichier Excel ou CSV ici</p>
-                </div>
-                <div className="bg-slate-50 border border-slate-100 p-3 rounded-lg text-[10px] text-slate-500 space-y-1">
-                  <span className="font-bold text-slate-700 block">Colonnes acceptées :</span>
-                  <ul className="list-disc pl-4 space-y-0.5">
-                    <li><strong>Salle</strong> ou <strong>Nom</strong> (ex: Salle B1).</li>
-                    <li><strong>Type</strong> (Standard, Laboratoire, Informatique).</li>
-                    <li><strong>Capacité</strong> ou <strong>Places</strong>.</li>
-                  </ul>
                 </div>
               </div>
             )}
