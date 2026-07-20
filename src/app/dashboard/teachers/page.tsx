@@ -152,7 +152,6 @@ export default function TeachersPage() {
           await supabase.from("teachers").insert(importedTeachers);
         }
 
-        alert(`${importedTeachers.length} enseignant(s) importé(s) !`);
         setInsertMode("manual");
       } catch (err) {
         console.error(err);
@@ -174,15 +173,20 @@ export default function TeachersPage() {
     }
   };
 
-  // REINITIALISATION DEFAILLANCE CORRIGEE
-  const handleResetTeachers = async () => {
-    if (confirm("Attention : Voulez-vous vraiment TOUT effacer pour les enseignants ?")) {
-      setTeachers([]);
-      setSelectedTeacherId(null);
-      localStorage.removeItem(STORAGE_KEY);
+  const handleResetTeachers = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
 
-      if (supabase) {
-        await supabase.from("teachers").delete().gte("weekly_hours", 0);
+    setTeachers([]);
+    setSelectedTeacherId(null);
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+
+    if (supabase) {
+      try {
+        await supabase.from("teachers").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      } catch (err) {
+        console.error(err);
       }
     }
   };
@@ -240,15 +244,13 @@ export default function TeachersPage() {
               <div className="flex items-center justify-between border-b pb-3">
                 <h3 className="font-bold text-sm text-slate-800 dark:text-slate-200">Enseignants</h3>
                 <div className="flex items-center gap-2">
-                  <Button 
+                  <button 
                     type="button" 
-                    size="sm" 
-                    variant="outline" 
                     onClick={handleResetTeachers}
-                    className="text-[10px] h-7 gap-1 text-rose-500 border-rose-200 hover:bg-rose-50 cursor-pointer"
+                    className="text-[10px] h-7 px-2.5 py-1 border border-rose-200 rounded-md font-bold text-rose-500 hover:bg-rose-50 transition-all flex items-center gap-1 cursor-pointer"
                   >
                     <RotateCcw className="size-3" /> Réinitialiser
-                  </Button>
+                  </button>
 
                   <Button 
                     size="sm" 

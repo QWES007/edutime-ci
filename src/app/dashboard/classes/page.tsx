@@ -173,7 +173,6 @@ export default function ClassesPage() {
           }
 
           setEntryMode("manual");
-          alert(`${newClasses.length} classe(s) importée(s) !`);
         }
       } catch (err) {
         console.error(err);
@@ -183,15 +182,20 @@ export default function ClassesPage() {
     reader.readAsArrayBuffer(file);
   };
 
-  // REINITIALISATION DEFAILLANCE CORRIGEE
-  const handleResetAllClasses = async () => {
-    if (confirm("Attention : Voulez-vous vraiment TOUT effacer pour les classes ?")) {
-      setClasses([]);
-      setSelectedClassId(null);
-      localStorage.removeItem(STORAGE_KEY);
+  const handleResetAllClasses = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
 
-      if (supabase) {
-        await supabase.from("classgroups").delete().gte("studentCount", 0);
+    setClasses([]);
+    setSelectedClassId(null);
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+
+    if (supabase) {
+      try {
+        await supabase.from("classgroups").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      } catch (err) {
+        console.error(err);
       }
     }
   };
@@ -361,7 +365,7 @@ export default function ClassesPage() {
               <button
                 type="button"
                 onClick={handleResetAllClasses}
-                className="text-[10px] text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 px-2 py-1 rounded-md font-bold transition-all flex items-center gap-1 cursor-pointer"
+                className="text-[10px] text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 px-2.5 py-1 rounded-md font-bold transition-all flex items-center gap-1 cursor-pointer"
               >
                 <RotateCcw className="size-3" />
                 Réinitialiser
@@ -390,6 +394,7 @@ export default function ClassesPage() {
                   </div>
 
                   <button
+                    type="button"
                     onClick={async (e) => {
                       e.stopPropagation();
                       const filtered = classes.filter((item) => item.id !== c.id);

@@ -119,7 +119,6 @@ export default function RoomsPage() {
           await supabase.from("rooms").insert(importedRooms);
         }
 
-        alert(`${importedRooms.length} salle(s) importée(s) !`);
         setInsertMode("manual");
       } catch (err) {
         console.error(err);
@@ -129,26 +128,28 @@ export default function RoomsPage() {
   };
 
   const handleDeleteRoom = async (id: string) => {
-    if (window.confirm("Supprimer cette salle ?")) {
-      const filtered = rooms.filter((r) => r.id !== id);
-      setRooms(filtered);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+    const filtered = rooms.filter((r) => r.id !== id);
+    setRooms(filtered);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
 
-      if (supabase) {
-        await supabase.from("rooms").delete().eq("id", id);
-      }
+    if (supabase) {
+      await supabase.from("rooms").delete().eq("id", id);
     }
   };
 
-  // REINITIALISATION DEFAILLANCE CORRIGEE
-  const handleResetRooms = async () => {
-    if (window.confirm("Attention : Voulez-vous vraiment TOUT effacer dans les salles ?")) {
-      setRooms([]);
-      localStorage.removeItem(STORAGE_KEY);
+  const handleResetRooms = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
 
-      if (supabase) {
-        // Supprime toutes les lignes dont la capacité est >= 0
-        await supabase.from("rooms").delete().gte("capacity", 0);
+    setRooms([]);
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+
+    if (supabase) {
+      try {
+        await supabase.from("rooms").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      } catch (err) {
+        console.error(err);
       }
     }
   };
@@ -168,15 +169,13 @@ export default function RoomsPage() {
             <div className="flex items-center justify-between border-b pb-2">
               <span className="text-sm font-bold text-slate-700">Locaux</span>
               <div className="flex items-center gap-2">
-                <Button
+                <button
                   type="button"
-                  variant="outline"
-                  size="sm"
                   onClick={handleResetRooms}
-                  className="h-7 text-[10px] text-rose-500 border-rose-200 hover:bg-rose-50 cursor-pointer"
+                  className="h-7 text-[10px] text-rose-500 border border-rose-200 hover:bg-rose-50 px-2.5 py-1 rounded-md font-bold transition-all flex items-center gap-1 cursor-pointer"
                 >
-                  <RotateCcw className="size-3 mr-1" /> Réinitialiser
-                </Button>
+                  <RotateCcw className="size-3" /> Réinitialiser
+                </button>
 
                 <div className="flex gap-1 bg-muted p-0.5 rounded-lg text-xs">
                   <button
