@@ -1,236 +1,396 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { DashboardHeader } from "@/components/layout/dashboard-sidebar";
+import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Users, Plus, Trash2, FileSpreadsheet, Upload, Download } from "lucide-react";
-import * as XLSX from "xlsx";
+import { 
+  Users, 
+  BookOpen, 
+  Clock, 
+  Trash2, 
+  Plus, 
+  FileSpreadsheet, 
+  Calendar,
+  CheckCircle2,
+  XCircle,
+  AlertCircle
+} from "lucide-react";
 
 interface Teacher {
   id: string;
   name: string;
-  subjects: string[];
-  maxHoursPerWeek: number;
-  unavailabilities: string[];
-  color: string;
+  subject: string;
+  weekly_hours: number;
+  unavailabilities?: Record<string, string>; // Ex: { "Lundi-M1": "indisponible", "Mardi-A1": "ce_up" }
 }
 
-const SEED_TEACHERS: Teacher[] = [
-  { id: "t1", name: "M. Kouassi Koffi", subjects: ["MATHS"], maxHoursPerWeek: 18, unavailabilities: [], color: "#3b82f6" },
-  { id: "t2", name: "Mme Koné Aminata", subjects: ["MATHS"], maxHoursPerWeek: 18, unavailabilities: [], color: "#10b981" },
+const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
+const SLOTS = [
+  { id: "M1", label: "M1 (07h - 08h)" },
+  { id: "M2", label: "M2 (08h - 09h)" },
+  { id: "M3", label: "M3 (09h - 10h)" },
+  { id: "M4", label: "M4 (10h - 11h)" },
+  { id: "M5", label: "M5 (11h - 12h)" },
+  { id: "A1", label: "A1 (13h - 14h)" },
+  { id: "A2", label: "A2 (14h - 15h)" },
+  { id: "A3", label: "A3 (15h - 16h)" },
+  { id: "A4", label: "A4 (16h - 17h)" },
 ];
 
 export default function TeachersPage() {
+  const supabase = createClient();
+
   const [teachers, setTeachers] = useState<Teacher[]>([]);
-  const [newName, setNewName] = useState("");
+  const [selectedTeacherId, setSelectedTeacherId] = useState<string | null>(null);
+  
+  // Formulaire d'ajout
+  const [name, setName] = useState("");
   const [subject, setSubject] = useState("");
-  const [insertMode, setInsertMode] = useState<"manual" | "excel">("manual");
+  const [weeklyHours, setWeeklyHours] = useState(18);
 
   useEffect(() => {
-    const saved = localStorage.getItem("edutime_teachers_live");
-    if (saved) {
-      setTeachers(JSON.parse(saved));
-    } else {
-      setTeachers(SEED_TEACHERS);
-    }
+    loadTeachers();
   }, []);
 
-  const saveTeachers = (updated: Teacher[]) => {
-    setTeachers(updated);
-    localStorage.setItem("edutime_teachers_live", JSON.stringify(updated));
-  };
+  const loadTeachers = async () => {
+    try {
+      if (supabase) {
+        const { data, error } = await (supabase.from("teachers" as any) as any)
+          .select("*")
+          .order("name", { ascending: true });
 
-  const handleAddTeacher = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newName.trim() || !subject.trim()) return;
-
-    const newTeacher: Teacher = {
-      id: `t_${Date.now()}`,
-      name: newName,
-      subjects: [subject.toUpperCase()],
-      maxHoursPerWeek: 18,
-      unavailabilities: [],
-      color: `#${Math.floor(Math.random() * 16777215).toString(16)}`,
-    };
-
-    saveTeachers([newTeacher, ...teachers]);
-    setNewName("");
-    setSubject("");
-  };
-
-  // Traitement du fichier Excel importé
-  const handleExcelImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: "binary" });
-        const wsname = wb.SheetNames[0];
-        const ws = wb.Sheets[wsname];
-        const data = XLSX.utils.sheet_to_json(ws) as any[];
-
-        const importedTeachers: Teacher[] = data
-          .filter((row) => row.Nom || row.Enseignant)
-          .map((row, index) => {
-            const rawSubjects = row.Matières || row.Matieres || row.Matière || "GÉNÉRAL";
-            const subjectsArray = String(rawSubjects)
-              .split(",")
-              .map((s) => s.trim().toUpperCase());
-
-            return {
-              id: `t_excel_${Date.now()}_${index}`,
-              name: row.Nom || row.Enseignant,
-              subjects: subjectsArray,
-              maxHoursPerWeek: Number(row.Heures || row.VolumeHoraire) || 18,
-              unavailabilities: [],
-              color: `#${Math.floor(Math.random() * 16777215).toString(16)}`,
-            };
-          });
-
-        if (importedTeachers.length === 0) {
-          alert("Aucune donnée valide trouvée. Vérifiez les colonnes 'Nom' et 'Matières'.");
+        if (!error && data && data.length > 0) {
+          setTeachers(data);
+          setSelectedTeacherId(data[0].id);
           return;
         }
-
-        saveTeachers([...importedTeachers, ...teachers]);
-        alert(`${importedTeachers.length} enseignant(s) importé(s) avec succès !`);
-        setInsertMode("manual");
-      } catch (err) {
-        console.error(err);
-        alert("Erreur lors de la lecture du fichier Excel. Assurez-vous qu'il est au bon format.");
       }
-    };
-    reader.readAsBinaryString(file);
-  };
+    } catch (e) {
+      console.log("Supabase non connecté, utilisation du stockage local.");
+    }
 
-  const handleDeleteTeacher = (id: string) => {
-    if (window.confirm("Supprimer cet enseignant ?")) {
-      saveTeachers(teachers.filter((t) => t.id !== id));
+    // Fallback LocalStorage / Mock
+    const saved = localStorage.getItem("edutime_teachers");
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      setTeachers(parsed);
+      if (parsed.length > 0) setSelectedTeacherId(parsed[0].id);
+    } else {
+      const initial: Teacher[] = [
+        { id: "1", name: "M. Kouassi Koffi", subject: "MATHS", weekly_hours: 18, unavailabilities: {} },
+        { id: "2", name: "Mme Koné Aminata", subject: "MATHS", weekly_hours: 18, unavailabilities: {} },
+        { id: "3", name: "M. Gomez Paul", subject: "FR, PHILO", weekly_hours: 21, unavailabilities: { "Mardi-A1": "indisponible", "Mercredi-A1": "ce_up" } },
+      ];
+      setTeachers(initial);
+      setSelectedTeacherId("1");
+      localStorage.setItem("edutime_teachers", JSON.stringify(initial));
     }
   };
 
-  return (
-    <div className="flex-1 space-y-6 p-8 pt-6">
-      <DashboardHeader
-        title="Enseignants & Dispos"
-        description="Configurez votre corps professoral, leurs matières et leurs volumes horaires."
-      />
+  const handleAddTeacher = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name || !subject) return;
 
-      <div className="grid gap-6 md:grid-cols-3">
-        {/* Panneau d'insertion */}
-        <Card className="shadow-sm">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between border-b pb-2">
-              <span className="text-sm font-bold text-slate-700">Enseignants</span>
-              <div className="flex gap-1 bg-muted p-0.5 rounded-lg text-xs">
-                <button
-                  onClick={() => setInsertMode("excel")}
-                  className={`px-2.5 py-1 rounded-md font-medium transition-all ${insertMode === "excel" ? "bg-white shadow-xs font-bold text-primary" : "text-muted-foreground"}`}
-                >
-                  <FileSpreadsheet className="inline size-3.5 mr-1" /> Excel
-                </button>
-                <button
-                  onClick={() => setInsertMode("manual")}
-                  className={`px-2.5 py-1 rounded-md font-medium transition-all ${insertMode === "manual" ? "bg-white shadow-xs font-bold text-primary" : "text-muted-foreground"}`}
-                >
-                  <Plus className="inline size-3.5 mr-1" /> Manuel
-                </button>
+    const newTeacher: Teacher = {
+      id: Date.now().toString(),
+      name,
+      subject: subject.toUpperCase(),
+      weekly_hours: Number(weeklyHours),
+      unavailabilities: {},
+    };
+
+    const updated = [...teachers, newTeacher];
+    setTeachers(updated);
+    setSelectedTeacherId(newTeacher.id);
+    localStorage.setItem("edutime_teachers", JSON.stringify(updated));
+
+    if (supabase) {
+      try {
+        await (supabase.from("teachers" as any) as any).insert([newTeacher]);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    setName("");
+    setSubject("");
+    setWeeklyHours(18);
+  };
+
+  const handleDeleteTeacher = async (id: string) => {
+    const updated = teachers.filter((t) => t.id !== id);
+    setTeachers(updated);
+    if (selectedTeacherId === id) {
+      setSelectedTeacherId(updated.length > 0 ? updated[0].id : null);
+    }
+    localStorage.setItem("edutime_teachers", JSON.stringify(updated));
+
+    if (supabase) {
+      try {
+        await (supabase.from("teachers" as any) as any).delete().eq("id", id);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  };
+
+  // Gestion du Clic sur une case de Disponibilité
+  const handleSlotClick = async (day: string, slotId: string) => {
+    if (!selectedTeacherId) return;
+
+    const slotKey = `${day}-${slotId}`;
+
+    const updatedTeachers = teachers.map((t) => {
+      if (t.id !== selectedTeacherId) return t;
+
+      const currentUnavail = t.unavailabilities || {};
+      const currentStatus = currentUnavail[slotKey];
+
+      let newStatus: string | undefined;
+      if (!currentStatus) {
+        newStatus = "indisponible"; // 1er clic -> Indisponible (Rouge)
+      } else if (currentStatus === "indisponible") {
+        newStatus = "ce_up"; // 2e clic -> Conseil Enseignement / UP (Orange)
+      } else {
+        newStatus = undefined; // 3e clic -> Remise à dispo (Blanc)
+      }
+
+      const newUnavail = { ...currentUnavail };
+      if (newStatus) {
+        newUnavail[slotKey] = newStatus;
+      } else {
+        delete newUnavail[slotKey];
+      }
+
+      return { ...t, unavailabilities: newUnavail };
+    });
+
+    setTeachers(updatedTeachers);
+    localStorage.setItem("edutime_teachers", JSON.stringify(updatedTeachers));
+
+    if (supabase) {
+      try {
+        const selected = updatedTeachers.find((t) => t.id === selectedTeacherId);
+        await (supabase.from("teachers" as any) as any)
+          .update({ unavailabilities: selected?.unavailabilities })
+          .eq("id", selectedTeacherId);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  };
+
+  const selectedTeacher = teachers.find((t) => t.id === selectedTeacherId);
+
+  return (
+    <div className="p-6 max-w-7xl mx-auto space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+          <Users className="size-6 text-emerald-600" /> Enseignants & Dispos
+        </h1>
+        <p className="text-sm text-slate-500 mt-1">
+          Configurez votre corps professoral, leurs matières et leurs contraintes d&apos;emploi du temps.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* COLONNE GAUCHE : Formulaire & Liste (5 Cols) */}
+        <div className="lg:col-span-5 space-y-6">
+          {/* Formulaire */}
+          <Card className="border-slate-200 dark:border-slate-800">
+            <CardContent className="p-5 space-y-4">
+              <div className="flex items-center justify-between border-b pb-3">
+                <h3 className="font-bold text-sm text-slate-800 dark:text-slate-200">Enseignants</h3>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" className="text-xs h-7 gap-1">
+                    <FileSpreadsheet className="size-3.5 text-emerald-600" /> Excel
+                  </Button>
+                  <Button size="sm" className="text-xs h-7 gap-1 bg-emerald-600 text-white">
+                    <Plus className="size-3.5" /> Manuel
+                  </Button>
+                </div>
               </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {insertMode === "manual" ? (
-              <form onSubmit={handleAddTeacher} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="newName">Nom complet</Label>
-                  <Input
-                    id="newName"
-                    placeholder="Ex: M. Gomez Paul"
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    required
+
+              <form onSubmit={handleAddTeacher} className="space-y-3">
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">Nom complet</label>
+                  <Input 
+                    placeholder="Ex: M. Gomez Paul" 
+                    value={name} 
+                    onChange={(e) => setName(e.target.value)}
+                    className="mt-1 text-xs"
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="subject">Discipline principale</Label>
-                  <Input
-                    id="subject"
-                    placeholder="Ex: MATHS, FR, PHILO"
-                    value={subject}
-                    onChange={(e) => setSubject(e.target.value)}
-                    required
-                  />
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">Discipline</label>
+                    <Input 
+                      placeholder="Ex: MATHS, FR, PHILO" 
+                      value={subject} 
+                      onChange={(e) => setSubject(e.target.value)}
+                      className="mt-1 text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">Volume Horaire</label>
+                    <Input 
+                      type="number"
+                      value={weeklyHours} 
+                      onChange={(e) => setWeeklyHours(Number(e.target.value))}
+                      className="mt-1 text-xs"
+                    />
+                  </div>
                 </div>
-                <Button type="submit" className="w-full gap-2">
+
+                <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs h-9">
                   Enregistrer l&apos;enseignant
                 </Button>
               </form>
-            ) : (
-              <div className="space-y-4">
-                <div className="border-2 border-dashed border-muted-foreground/20 rounded-xl p-6 text-center hover:bg-muted/30 transition-colors relative cursor-pointer group">
-                  <input
-                    type="file"
-                    accept=".xlsx, .xls, .csv"
-                    onChange={handleExcelImport}
-                    className="absolute inset-0 opacity-0 cursor-pointer"
-                  />
-                  <Upload className="size-8 mx-auto text-muted-foreground group-hover:text-primary transition-colors mb-2" />
-                  <p className="text-xs font-bold">Glissez votre fichier Excel ou CSV ici</p>
-                  <p className="text-[10px] text-muted-foreground mt-1">ou cliquez pour parcourir (.xlsx, .xls)</p>
+            </CardContent>
+          </Card>
+
+          {/* Liste des Enseignants */}
+          <div className="space-y-2 max-h-[450px] overflow-y-auto pr-1">
+            {teachers.map((t) => {
+              const isSelected = t.id === selectedTeacherId;
+              const unavailCount = Object.keys(t.unavailabilities || {}).length;
+
+              return (
+                <div
+                  key={t.id}
+                  onClick={() => setSelectedTeacherId(t.id)}
+                  className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
+                    isSelected
+                      ? "border-emerald-500 bg-emerald-500/10 dark:bg-emerald-950/20 shadow-sm"
+                      : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300"
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`size-3 rounded-full ${isSelected ? "bg-emerald-500 animate-pulse" : "bg-slate-300 dark:bg-slate-700"}`} />
+                    <div>
+                      <h4 className="font-bold text-xs text-slate-900 dark:text-slate-100">{t.name}</h4>
+                      <p className="text-[10px] text-slate-500 font-medium">
+                        {t.subject} &bull; {t.weekly_hours}h
+                        {unavailCount > 0 && (
+                          <span className="ml-2 text-amber-600 font-bold">({unavailCount} contrainte(s))</span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteTeacher(t.id);
+                    }}
+                    className="text-slate-400 hover:text-rose-600 size-7 p-0"
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
                 </div>
-                
-                <div className="bg-slate-50 border border-slate-100 p-3 rounded-lg text-[10px] text-slate-500 space-y-1">
-                  <span className="font-bold text-slate-700 block">Consignes :</span>
-                  <ul className="list-disc pl-4 space-y-0.5">
-                    <li>Colonne <strong>Nom</strong> ou <strong>Enseignant</strong> requise.</li>
-                    <li>Colonne <strong>Matières</strong> requise (ex: MATHS, PC, FR).</li>
-                    <li>Plusieurs matières séparées par une virgule.</li>
-                  </ul>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* COLONNE DROITE : Grille des Disponibilités (7 Cols) */}
+        <div className="lg:col-span-7">
+          <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 h-full">
+            <CardContent className="p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-3">
+                <div>
+                  <h3 className="font-bold text-sm text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                    <Calendar className="size-4 text-emerald-600" /> Grille des Disponibilités Hebdomadaires
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    {selectedTeacher ? (
+                      <>Pour : <strong className="text-emerald-600">{selectedTeacher.name}</strong> ({selectedTeacher.subject})</>
+                    ) : (
+                      "Sélectionnez un enseignant à gauche pour configurer ses créneaux."
+                    )}
+                  </p>
+                </div>
+
+                {/* Légende */}
+                <div className="flex items-center gap-3 text-[10px] font-semibold">
+                  <span className="flex items-center gap-1 text-slate-600 dark:text-slate-400">
+                    <span className="size-2.5 rounded bg-slate-100 dark:bg-slate-800 border" /> Dispo
+                  </span>
+                  <span className="flex items-center gap-1 text-rose-600">
+                    <span className="size-2.5 rounded bg-rose-500" /> Indispo
+                  </span>
+                  <span className="flex items-center gap-1 text-amber-600">
+                    <span className="size-2.5 rounded bg-amber-500" /> CE/UP
+                  </span>
                 </div>
               </div>
-            )}
-          </CardContent>
-        </Card>
 
-        {/* Liste à droite */}
-        <div className="md:col-span-2 space-y-4">
-          {teachers.length === 0 ? (
-            <div className="rounded-xl border border-dashed p-8 text-center bg-card">
-              <p className="text-muted-foreground">Aucun enseignant disponible.</p>
-            </div>
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {teachers.map((t) => (
-                <Card key={t.id} className="shadow-xs hover:border-primary/45 transition-colors">
-                  <CardContent className="p-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="size-2.5 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
-                      <div className="min-w-0">
-                        <h4 className="font-bold text-sm truncate">{t.name}</h4>
-                        <p className="text-[11px] text-muted-foreground mt-0.5 font-medium">
-                          {t.subjects.join(", ")} · {t.maxHoursPerWeek}h
-                        </p>
-                      </div>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="text-destructive hover:bg-destructive/10 size-8 shrink-0"
-                      onClick={() => handleDeleteTeacher(t.id)}
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
+              {!selectedTeacher ? (
+                <div className="text-center py-20 text-slate-400 text-xs">
+                  Sélectionnez un enseignant dans la liste pour modifier sa grille.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-center border-collapse text-xs">
+                    <thead>
+                      <tr className="border-b bg-slate-50 dark:bg-slate-800/50 text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                        <th className="py-2.5 px-2 text-left w-28">Créneau</th>
+                        {DAYS.map((day) => (
+                          <th key={day} className="py-2.5 px-2">{day}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {SLOTS.map((slot) => (
+                        <tr key={slot.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20">
+                          <td className="py-2 px-2 text-left font-semibold text-[10px] text-slate-500 border-r dark:border-slate-800">
+                            {slot.label}
+                          </td>
+                          {DAYS.map((day) => {
+                            const key = `${day}-${slot.id}`;
+                            const status = selectedTeacher.unavailabilities?.[key];
+
+                            return (
+                              <td key={day} className="p-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSlotClick(day, slot.id)}
+                                  className={`w-full h-8 rounded-md font-bold text-[10px] transition-all border flex items-center justify-center gap-1 cursor-pointer ${
+                                    status === "indisponible"
+                                      ? "bg-rose-500/15 border-rose-500/40 text-rose-600 dark:text-rose-400 shadow-xs"
+                                      : status === "ce_up"
+                                      ? "bg-amber-500/15 border-amber-500/40 text-amber-600 dark:text-amber-400 shadow-xs"
+                                      : "bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800 text-slate-400 hover:border-slate-300"
+                                  }`}
+                                >
+                                  {status === "indisponible" && (
+                                    <>
+                                      <XCircle className="size-3" /> Indisponible
+                                    </>
+                                  )}
+                                  {status === "ce_up" && (
+                                    <>
+                                      <AlertCircle className="size-3" /> CE/UP
+                                    </>
+                                  )}
+                                  {!status && <span className="opacity-0 hover:opacity-100 text-slate-400">+</span>}
+                                </button>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>
