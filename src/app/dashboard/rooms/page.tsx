@@ -28,40 +28,67 @@ export default function RoomsPage() {
   const [insertMode, setInsertMode] = useState<"manual" | "excel">("manual");
   const [isInitialized, setIsInitialized] = useState(false);
 
+  // 1. Synchronisation automatique au rechargement
   useEffect(() => {
-    const loadRoomsData = async () => {
-      if (supabase) {
-        try {
-          const { data, error } = await supabase
-            .from("rooms")
-            .select("*")
-            .order("name", { ascending: true });
-
-          if (!error && data && data.length > 0) {
-            setRooms(data);
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-            setIsInitialized(true);
-            return;
-          }
-        } catch (e) {
-          console.log("Supabase non disponible :", e);
-        }
-      }
-
+    const syncAndLoadRooms = async () => {
       const savedLocal = localStorage.getItem(STORAGE_KEY);
-      if (savedLocal !== null) {
+      let localRooms: Room[] = [];
+      if (savedLocal) {
         try {
-          setRooms(JSON.parse(savedLocal));
+          localRooms = JSON.parse(savedLocal);
         } catch (e) {
           console.error(e);
         }
       }
+
+      if (supabase) {
+        try {
+          const { data: remoteRooms, error: selectError } = await supabase.from("rooms").select("*");
+          
+          if (selectError) {
+            console.error("Erreur de lecture Supabase :", selectError.message);
+          }
+
+          // Si le navigateur contient des salles mais que Supabase est VIDE
+          if (localRooms.length > 0 && (!remoteRooms || remoteRooms.length === 0)) {
+            const formattedRooms = localRooms.map((r) => ({
+              id: r.id && r.id.length === 36 ? r.id : crypto.randomUUID(),
+              name: r.name,
+              type: r.type || "Standard",
+              capacity: Number(r.capacity) || 50,
+            }));
+
+            const { error: insertError } = await supabase.from("rooms").insert(formattedRooms);
+            if (!insertError) {
+              console.log("Salles synchronisées avec succès dans Supabase !");
+              setRooms(formattedRooms);
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(formattedRooms));
+              setIsInitialized(true);
+              return;
+            } else {
+              console.error("Erreur de synchro Supabase :", insertError.message);
+            }
+          }
+
+          if (remoteRooms && remoteRooms.length > 0) {
+            setRooms(remoteRooms);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(remoteRooms));
+            setIsInitialized(true);
+            return;
+          }
+        } catch (err) {
+          console.error("Erreur de synchro Supabase :", err);
+        }
+      }
+
+      setRooms(localRooms);
       setIsInitialized(true);
     };
 
-    loadRoomsData();
+    syncAndLoadRooms();
   }, []);
 
+  // 2. Ajout Manuel
   const handleAddRoom = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!roomName.trim()) return;
@@ -78,12 +105,16 @@ export default function RoomsPage() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 
     if (supabase) {
-      await supabase.from("rooms").insert([newRoom]);
+      const { error } = await supabase.from("rooms").insert([newRoom]);
+      if (error) {
+        console.error("Erreur d'insertion Supabase :", error.message);
+      }
     }
 
     setRoomName("");
   };
 
+  // 3. Importation Excel
   const handleExcelImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -116,7 +147,10 @@ export default function RoomsPage() {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
 
         if (supabase) {
-          await supabase.from("rooms").insert(importedRooms);
+          const { error } = await supabase.from("rooms").insert(importedRooms);
+          if (error) {
+            console.error("Erreur d'insertion Supabase Excel :", error.message);
+          }
         }
 
         setInsertMode("manual");
@@ -127,16 +161,19 @@ export default function RoomsPage() {
     reader.readAsBinaryString(file);
   };
 
+  // 4. Suppression
   const handleDeleteRoom = async (id: string) => {
     const filtered = rooms.filter((r) => r.id !== id);
     setRooms(filtered);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
 
     if (supabase) {
-      await supabase.from("rooms").delete().eq("id", id);
+      const { error } = await supabase.from("rooms").delete().eq("id", id);
+      if (error) console.error("Erreur de suppression Supabase :", error.message);
     }
   };
 
+  // 5. Réinitialisation
   const handleResetRooms = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -147,7 +184,8 @@ export default function RoomsPage() {
 
     if (supabase) {
       try {
-        await supabase.from("rooms").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+        const { error } = await supabase.from("rooms").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+        if (error) console.error("Erreur Supabase réinitialisation :", error.message);
       } catch (err) {
         console.error(err);
       }
