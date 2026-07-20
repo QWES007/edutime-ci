@@ -48,7 +48,7 @@ export function DashboardSidebar() {
         setSchoolData({
           schoolName: profile.schoolName || profile.school_name,
           city: profile.city || "Abidjan",
-          isSuperAdmin: true, // Le superadmin conserve son droit de retour
+          isSuperAdmin: true,
         });
         return;
       }
@@ -58,11 +58,14 @@ export function DashboardSidebar() {
     const { data: { user } } = await supabase.auth.getUser();
 
     if (user) {
-      const { data: profile } = await supabase
+      const { data } = await supabase
         .from("profiles")
         .select("school_name, city, is_superadmin")
         .eq("id", user.id)
         .single();
+
+      // Typage explicite pour sécuriser TypeScript lors du build
+      const profile = data as { school_name: string; city: string; is_superadmin: boolean } | null;
 
       if (profile) {
         setSchoolData({
@@ -143,7 +146,6 @@ export function DashboardSidebar() {
               <Settings className="w-4 h-4" /> Paramètres
             </Link>
 
-            {/* Le bouton apparaît UNIQUEMENT si is_superadmin vaut TRUE en BD */}
             {schoolData.isSuperAdmin && (
               <Link href="/superadmin" className="flex items-center gap-2.5 px-3 py-2 mt-4 rounded-lg text-xs font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-all">
                 <ShieldCheck className="w-4 h-4" /> Superadmin
