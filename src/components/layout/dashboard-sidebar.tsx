@@ -50,7 +50,7 @@ const MENU_ITEMS: MenuItem[] = [
   },
 ];
 
-export default function DashboardSidebar() {
+export function DashboardSidebar() {
   const pathname = usePathname();
   const [openSubmenus, setOpenSubmenus] = useState<Record<string, boolean>>({
     "SCOLARITÉ": true,
@@ -146,4 +146,12 @@ export default function DashboardSidebar() {
       </nav>
     </aside>
   );
+}
+
+// Export par défaut + nommé
+export default DashboardSidebar;
+
+// Export neutre de sécurité pour DashboardHeader
+export function DashboardHeader() {
+  return null;
 }

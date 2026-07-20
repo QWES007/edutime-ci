@@ -7,13 +7,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { 
   Users, 
-  BookOpen, 
-  Clock, 
   Trash2, 
   Plus, 
   FileSpreadsheet, 
   Calendar,
-  CheckCircle2,
   XCircle,
   AlertCircle
 } from "lucide-react";
@@ -23,7 +20,7 @@ interface Teacher {
   name: string;
   subject: string;
   weekly_hours: number;
-  unavailabilities?: Record<string, string>; // Ex: { "Lundi-M1": "indisponible", "Mardi-A1": "ce_up" }
+  unavailabilities?: Record<string, string>;
 }
 
 const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
@@ -45,13 +42,13 @@ export default function TeachersPage() {
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [selectedTeacherId, setSelectedTeacherId] = useState<string | null>(null);
   
-  // Formulaire d'ajout
   const [name, setName] = useState("");
   const [subject, setSubject] = useState("");
   const [weeklyHours, setWeeklyHours] = useState(18);
 
   useEffect(() => {
     loadTeachers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadTeachers = async () => {
@@ -68,10 +65,9 @@ export default function TeachersPage() {
         }
       }
     } catch (e) {
-      console.log("Supabase non connecté, utilisation du stockage local.");
+      console.log("Supabase non connecté, utilisation du stockage local.", e);
     }
 
-    // Fallback LocalStorage / Mock
     const saved = localStorage.getItem("edutime_teachers");
     if (saved) {
       const parsed = JSON.parse(saved);
@@ -136,7 +132,6 @@ export default function TeachersPage() {
     }
   };
 
-  // Gestion du Clic sur une case de Disponibilité
   const handleSlotClick = async (day: string, slotId: string) => {
     if (!selectedTeacherId) return;
 
@@ -150,11 +145,11 @@ export default function TeachersPage() {
 
       let newStatus: string | undefined;
       if (!currentStatus) {
-        newStatus = "indisponible"; // 1er clic -> Indisponible (Rouge)
+        newStatus = "indisponible";
       } else if (currentStatus === "indisponible") {
-        newStatus = "ce_up"; // 2e clic -> Conseil Enseignement / UP (Orange)
+        newStatus = "ce_up";
       } else {
-        newStatus = undefined; // 3e clic -> Remise à dispo (Blanc)
+        newStatus = undefined;
       }
 
       const newUnavail = { ...currentUnavail };
@@ -196,9 +191,7 @@ export default function TeachersPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* COLONNE GAUCHE : Formulaire & Liste (5 Cols) */}
         <div className="lg:col-span-5 space-y-6">
-          {/* Formulaire */}
           <Card className="border-slate-200 dark:border-slate-800">
             <CardContent className="p-5 space-y-4">
               <div className="flex items-center justify-between border-b pb-3">
@@ -252,7 +245,6 @@ export default function TeachersPage() {
             </CardContent>
           </Card>
 
-          {/* Liste des Enseignants */}
           <div className="space-y-2 max-h-[450px] overflow-y-auto pr-1">
             {teachers.map((t) => {
               const isSelected = t.id === selectedTeacherId;
@@ -298,7 +290,6 @@ export default function TeachersPage() {
           </div>
         </div>
 
-        {/* COLONNE DROITE : Grille des Disponibilités (7 Cols) */}
         <div className="lg:col-span-7">
           <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 h-full">
             <CardContent className="p-5 space-y-4">
@@ -316,7 +307,6 @@ export default function TeachersPage() {
                   </p>
                 </div>
 
-                {/* Légende */}
                 <div className="flex items-center gap-3 text-[10px] font-semibold">
                   <span className="flex items-center gap-1 text-slate-600 dark:text-slate-400">
                     <span className="size-2.5 rounded bg-slate-100 dark:bg-slate-800 border" /> Dispo

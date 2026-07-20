@@ -1,4 +1,3 @@
-// Force rebuild Vercel
 "use client";
 
 import React, { useState, useEffect } from "react";
@@ -42,6 +41,7 @@ export default function SuperAdminConsole() {
 
   useEffect(() => {
     verifySuperAdminAccess();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const verifySuperAdminAccess = async () => {
@@ -56,7 +56,6 @@ export default function SuperAdminConsole() {
         return;
       }
 
-      // Bypass TypeScript strict pour la table profiles
       const { data, error: profileError } = await (supabase.from("profiles" as any) as any)
         .select("is_superadmin")
         .eq("id", user.id)
@@ -93,20 +92,17 @@ export default function SuperAdminConsole() {
     }
   };
 
-  // FONCTION POUR CHANGER LE PLAN DIRECTEMENT
   const handlePlanChange = async (schoolId: string, newPlan: string) => {
     try {
       setUpdatingId(schoolId);
       if (!supabase) return;
 
-      // Bypass du type 'never' pour la méthode update
       const { error } = await (supabase.from("profiles" as any) as any)
         .update({ subscription_plan: newPlan })
         .eq("id", schoolId);
 
       if (error) throw error;
 
-      // Mettre à jour la liste locale
       setSchools((prev) =>
         prev.map((s) => (s.id === schoolId ? { ...s, subscription_plan: newPlan } : s))
       );
@@ -178,7 +174,6 @@ export default function SuperAdminConsole() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8 space-y-8">
-        {/* Cartes de Statistiques */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <Card className="bg-[#0f172a] border-[#1e293b] text-slate-200 shadow-sm">
             <CardContent className="p-5 flex items-center gap-4">
@@ -238,7 +233,6 @@ export default function SuperAdminConsole() {
           </Card>
         </div>
 
-        {/* Barre de recherche */}
         <div className="flex flex-col sm:flex-row gap-4 items-center justify-between bg-[#0f172a] border border-[#1e293b] p-4 rounded-xl shadow-xs">
           <div className="relative w-full sm:max-w-md">
             <Search className="absolute left-3 top-2.5 size-4 text-slate-500" />
@@ -268,7 +262,6 @@ export default function SuperAdminConsole() {
           </div>
         </div>
 
-        {/* Tableau avec menu déroulant pour changer le plan */}
         <Card className="bg-[#0f172a] border-[#1e293b] overflow-hidden shadow-lg">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
