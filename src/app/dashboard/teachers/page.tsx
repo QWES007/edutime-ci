@@ -1,173 +1,418 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Plus, Trash2, RotateCcw, FileSpreadsheet } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { createClient } from "@/lib/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { 
+  Users, 
+  Trash2, 
+  Plus, 
+  FileSpreadsheet, 
+  Calendar,
+  XCircle,
+  AlertCircle,
+  RotateCcw
+} from "lucide-react";
 
 interface Teacher {
   id: string;
   name: string;
   subject: string;
-  weeklyHours: number;
+  weekly_hours: number;
+  unavailabilities?: Record<string, string>;
 }
 
+const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
+const SLOTS = [
+  { id: "M1", label: "M1 (07h - 08h)" },
+  { id: "M2", label: "M2 (08h - 09h)" },
+  { id: "M3", label: "M3 (09h - 10h)" },
+  { id: "M4", label: "M4 (10h - 11h)" },
+  { id: "M5", label: "M5 (11h - 12h)" },
+  { id: "A1", label: "A1 (13h - 14h)" },
+  { id: "A2", label: "A2 (14h - 15h)" },
+  { id: "A3", label: "A3 (15h - 16h)" },
+  { id: "A4", label: "A4 (16h - 17h)" },
+];
+
 export default function TeachersPage() {
+  const supabase = createClient();
+
   const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [selectedTeacherId, setSelectedTeacherId] = useState<string | null>(null);
+  
   const [name, setName] = useState("");
   const [subject, setSubject] = useState("");
   const [weeklyHours, setWeeklyHours] = useState(18);
 
   useEffect(() => {
+    loadTeachers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const loadTeachers = async () => {
+    try {
+      if (supabase) {
+        const { data, error } = await (supabase.from("teachers" as any) as any)
+          .select("*")
+          .order("name", { ascending: true });
+
+        if (!error && data && data.length > 0) {
+          setTeachers(data);
+          setSelectedTeacherId(data[0].id);
+          return;
+        }
+      }
+    } catch (e) {
+      console.log("Supabase non connecté, utilisation du stockage local.", e);
+    }
+
     const saved = localStorage.getItem("edutime_teachers");
     if (saved) {
+      const parsed = JSON.parse(saved);
+      setTeachers(parsed);
+      if (parsed.length > 0) setSelectedTeacherId(parsed[0].id);
+    } else {
+      const initial: Teacher[] = [
+        { id: "1", name: "M. Kouassi Koffi", subject: "MATHS", weekly_hours: 18, unavailabilities: {} },
+        { id: "2", name: "Mme Koné Aminata", subject: "MATHS", weekly_hours: 18, unavailabilities: {} },
+        { id: "3", name: "M. Gomez Paul", subject: "FR, PHILO", weekly_hours: 21, unavailabilities: { "Mardi-A1": "indisponible", "Mercredi-A1": "ce_up" } },
+      ];
+      setTeachers(initial);
+      setSelectedTeacherId("1");
+      localStorage.setItem("edutime_teachers", JSON.stringify(initial));
+    }
+  };
+
+  const handleAddTeacher = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name || !subject) return;
+
+    const newTeacher: Teacher = {
+      id: Date.now().toString(),
+      name,
+      subject: subject.toUpperCase(),
+      weekly_hours: Number(weeklyHours),
+      unavailabilities: {},
+    };
+
+    const updated = [...teachers, newTeacher];
+    setTeachers(updated);
+    setSelectedTeacherId(newTeacher.id);
+    localStorage.setItem("edutime_teachers", JSON.stringify(updated));
+
+    if (supabase) {
       try {
-        setTeachers(JSON.parse(saved));
+        await (supabase.from("teachers" as any) as any).insert([newTeacher]);
       } catch (e) {
         console.error(e);
       }
     }
-  }, []);
 
-  const saveTeachers = (data: Teacher[]) => {
-    setTeachers(data);
-    localStorage.setItem("edutime_teachers", JSON.stringify(data));
-  };
-
-  const handleAdd = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name || !subject) return;
-    const newTeacher: Teacher = {
-      id: Date.now().toString(),
-      name,
-      subject,
-      weeklyHours,
-    };
-    saveTeachers([...teachers, newTeacher]);
     setName("");
     setSubject("");
+    setWeeklyHours(18);
   };
 
-  const handleDelete = (id: string) => {
-    saveTeachers(teachers.filter((t) => t.id !== id));
-  };
+  const handleDeleteTeacher = async (id: string) => {
+    const updated = teachers.filter((t) => t.id !== id);
+    setTeachers(updated);
+    if (selectedTeacherId === id) {
+      setSelectedTeacherId(updated.length > 0 ? updated[0].id : null);
+    }
+    localStorage.setItem("edutime_teachers", JSON.stringify(updated));
 
-  const handleReset = () => {
-    if (
-      confirm(
-        "Attention : Voulez-vous vraiment réinitialiser toute la liste des enseignants ?"
-      )
-    ) {
-      localStorage.removeItem("edutime_teachers");
-      localStorage.removeItem("teachers");
-      setTeachers([]);
-      window.location.reload();
+    if (supabase) {
+      try {
+        await (supabase.from("teachers" as any) as any).delete().eq("id", id);
+      } catch (e) {
+        console.error(e);
+      }
     }
   };
 
+  const handleResetTeachers = async () => {
+    if (!confirm("Attention : Voulez-vous vraiment réinitialiser et tout effacer dans la liste des enseignants ?")) {
+      return;
+    }
+
+    setTeachers([]);
+    setSelectedTeacherId(null);
+    localStorage.removeItem("edutime_teachers");
+    localStorage.removeItem("teachers");
+
+    if (supabase) {
+      try {
+        await (supabase.from("teachers" as any) as any).delete().neq("id", "0");
+      } catch (e) {
+        console.error("Erreur réinitialisation Supabase :", e);
+      }
+    }
+
+    window.location.reload();
+  };
+
+  const handleSlotClick = async (day: string, slotId: string) => {
+    if (!selectedTeacherId) return;
+
+    const slotKey = `${day}-${slotId}`;
+
+    const updatedTeachers = teachers.map((t) => {
+      if (t.id !== selectedTeacherId) return t;
+
+      const currentUnavail = t.unavailabilities || {};
+      const currentStatus = currentUnavail[slotKey];
+
+      let newStatus: string | undefined;
+      if (!currentStatus) {
+        newStatus = "indisponible";
+      } else if (currentStatus === "indisponible") {
+        newStatus = "ce_up";
+      } else {
+        newStatus = undefined;
+      }
+
+      const newUnavail = { ...currentUnavail };
+      if (newStatus) {
+        newUnavail[slotKey] = newStatus;
+      } else {
+        delete newUnavail[slotKey];
+      }
+
+      return { ...t, unavailabilities: newUnavail };
+    });
+
+    setTeachers(updatedTeachers);
+    localStorage.setItem("edutime_teachers", JSON.stringify(updatedTeachers));
+
+    if (supabase) {
+      try {
+        const selected = updatedTeachers.find((t) => t.id === selectedTeacherId);
+        await (supabase.from("teachers" as any) as any)
+          .update({ unavailabilities: selected?.unavailabilities })
+          .eq("id", selectedTeacherId);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  };
+
+  const selectedTeacher = teachers.find((t) => t.id === selectedTeacherId);
+
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            👨‍🏫 Enseignants & Dispos
-          </h1>
-          <p className="text-sm text-slate-400">
-            Configurez votre corps professoral et leurs matières.
-          </p>
-        </div>
+    <div className="p-6 max-w-7xl mx-auto space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+          <Users className="size-6 text-emerald-600" /> Enseignants & Dispos
+        </h1>
+        <p className="text-sm text-slate-500 mt-1">
+          Configurez votre corps professoral, leurs matières et leurs contraintes d&apos;emploi du temps.
+        </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Formulaire */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-          <h2 className="text-lg font-semibold text-white">Enseignants</h2>
-          <form onSubmit={handleAdd} className="space-y-4">
-            <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">
-                Nom complet
-              </label>
-              <input
-                type="text"
-                placeholder="Ex: M. Gomez Paul"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1">
-                  Discipline
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ex: MATHS"
-                  value={subject}
-                  onChange={(e) => setSubject(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
-                />
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="lg:col-span-5 space-y-6">
+          <Card className="border-slate-200 dark:border-slate-800">
+            <CardContent className="p-5 space-y-4">
+              <div className="flex items-center justify-between border-b pb-3">
+                <h3 className="font-bold text-sm text-slate-800 dark:text-slate-200">Enseignants</h3>
+                <div className="flex items-center gap-2">
+                  <Button 
+                    type="button" 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={handleResetTeachers}
+                    className="text-[10px] h-7 gap-1 text-rose-500 border-rose-200 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                  >
+                    <RotateCcw className="size-3" /> Réinitialiser
+                  </Button>
+
+                  <Button size="sm" variant="outline" className="text-xs h-7 gap-1">
+                    <FileSpreadsheet className="size-3.5 text-emerald-600" /> Excel
+                  </Button>
+                  <Button size="sm" className="text-xs h-7 gap-1 bg-emerald-600 text-white">
+                    <Plus className="size-3.5" /> Manuel
+                  </Button>
+                </div>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1">
-                  Volume Horaire
-                </label>
-                <input
-                  type="number"
-                  value={weeklyHours}
-                  onChange={(e) => setWeeklyHours(Number(e.target.value))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-            </div>
-            <button
-              type="submit"
-              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2 rounded-lg text-sm transition-colors flex items-center justify-center gap-2"
-            >
-              <Plus className="w-4 h-4" /> Enregistrer l'enseignant
-            </button>
-          </form>
+
+              <form onSubmit={handleAddTeacher} className="space-y-3">
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">Nom complet</label>
+                  <Input 
+                    placeholder="Ex: M. Gomez Paul" 
+                    value={name} 
+                    onChange={(e) => setName(e.target.value)}
+                    className="mt-1 text-xs"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">Discipline</label>
+                    <Input 
+                      placeholder="Ex: MATHS, FR, PHILO" 
+                      value={subject} 
+                      onChange={(e) => setSubject(e.target.value)}
+                      className="mt-1 text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">Volume Horaire</label>
+                    <Input 
+                      type="number"
+                      value={weeklyHours} 
+                      onChange={(e) => setWeeklyHours(Number(e.target.value))}
+                      className="mt-1 text-xs"
+                    />
+                  </div>
+                </div>
+
+                <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs h-9">
+                  Enregistrer l&apos;enseignant
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+
+          <div className="space-y-2 max-h-[450px] overflow-y-auto pr-1">
+            {teachers.map((t) => {
+              const isSelected = t.id === selectedTeacherId;
+              const unavailCount = Object.keys(t.unavailabilities || {}).length;
+
+              return (
+                <div
+                  key={t.id}
+                  onClick={() => setSelectedTeacherId(t.id)}
+                  className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
+                    isSelected
+                      ? "border-emerald-500 bg-emerald-500/10 dark:bg-emerald-950/20 shadow-sm"
+                      : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300"
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`size-3 rounded-full ${isSelected ? "bg-emerald-500 animate-pulse" : "bg-slate-300 dark:bg-slate-700"}`} />
+                    <div>
+                      <h4 className="font-bold text-xs text-slate-900 dark:text-slate-100">{t.name}</h4>
+                      <p className="text-[10px] text-slate-500 font-medium">
+                        {t.subject} &bull; {t.weekly_hours}h
+                        {unavailCount > 0 && (
+                          <span className="ml-2 text-amber-600 font-bold">({unavailCount} contrainte(s))</span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteTeacher(t.id);
+                    }}
+                    className="text-slate-400 hover:text-rose-600 size-7 p-0"
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
-        {/* Liste */}
-        <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-          <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-            <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
-              Liste des enseignants ({teachers.length})
-            </h2>
-            <button
-              type="button"
-              onClick={handleReset}
-              className="px-3 py-1.5 text-xs font-medium text-red-400 hover:text-red-300 border border-red-500/30 hover:border-red-500/60 rounded-lg bg-red-500/10 transition-colors flex items-center gap-1.5 cursor-pointer"
-            >
-              <RotateCcw className="w-3.5 h-3.5" /> Réinitialiser
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {teachers.map((t) => (
-              <div
-                key={t.id}
-                className="bg-slate-950 border border-slate-800/80 rounded-lg p-3 flex justify-between items-center"
-              >
+        <div className="lg:col-span-7">
+          <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 h-full">
+            <CardContent className="p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-3">
                 <div>
-                  <p className="font-medium text-white text-sm">{t.name}</p>
-                  <p className="text-xs text-slate-400">
-                    {t.subject} • {t.weeklyHours}h / semaine
+                  <h3 className="font-bold text-sm text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                    <Calendar className="size-4 text-emerald-600" /> Grille des Disponibilités Hebdomadaires
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    {selectedTeacher ? (
+                      <>Pour : <strong className="text-emerald-600">{selectedTeacher.name}</strong> ({selectedTeacher.subject})</>
+                    ) : (
+                      "Sélectionnez un enseignant à gauche pour configurer ses créneaux."
+                    )}
                   </p>
                 </div>
-                <button
-                  onClick={() => handleDelete(t.id)}
-                  className="text-slate-500 hover:text-red-400 p-1.5 rounded-md hover:bg-slate-800 transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+
+                <div className="flex items-center gap-3 text-[10px] font-semibold">
+                  <span className="flex items-center gap-1 text-slate-600 dark:text-slate-400">
+                    <span className="size-2.5 rounded bg-slate-100 dark:bg-slate-800 border" /> Dispo
+                  </span>
+                  <span className="flex items-center gap-1 text-rose-600">
+                    <span className="size-2.5 rounded bg-rose-500" /> Indispo
+                  </span>
+                  <span className="flex items-center gap-1 text-amber-600">
+                    <span className="size-2.5 rounded bg-amber-500" /> CE/UP
+                  </span>
+                </div>
               </div>
-            ))}
-            {teachers.length === 0 && (
-              <p className="text-xs text-slate-500 col-span-2 text-center py-6">
-                Aucun enseignant enregistré.
-              </p>
-            )}
-          </div>
+
+              {!selectedTeacher ? (
+                <div className="text-center py-20 text-slate-400 text-xs">
+                  Sélectionnez un enseignant dans la liste pour modifier sa grille.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-center border-collapse text-xs">
+                    <thead>
+                      <tr className="border-b bg-slate-50 dark:bg-slate-800/50 text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                        <th className="py-2.5 px-2 text-left w-28">Créneau</th>
+                        {DAYS.map((day) => (
+                          <th key={day} className="py-2.5 px-2">{day}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {SLOTS.map((slot) => (
+                        <tr key={slot.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20">
+                          <td className="py-2 px-2 text-left font-semibold text-[10px] text-slate-500 border-r dark:border-slate-800">
+                            {slot.label}
+                          </td>
+                          {DAYS.map((day) => {
+                            const key = `${day}-${slot.id}`;
+                            const status = selectedTeacher.unavailabilities?.[key];
+
+                            return (
+                              <td key={day} className="p-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSlotClick(day, slot.id)}
+                                  className={`w-full h-8 rounded-md font-bold text-[10px] transition-all border flex items-center justify-center gap-1 cursor-pointer ${
+                                    status === "indisponible"
+                                      ? "bg-rose-500/15 border-rose-500/40 text-rose-600 dark:text-rose-400 shadow-xs"
+                                      : status === "ce_up"
+                                      ? "bg-amber-500/15 border-amber-500/40 text-amber-600 dark:text-amber-400 shadow-xs"
+                                      : "bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800 text-slate-400 hover:border-slate-300"
+                                  }`}
+                                >
+                                  {status === "indisponible" && (
+                                    <>
+                                      <XCircle className="size-3" /> Indisponible
+                                    </>
+                                  )}
+                                  {status === "ce_up" && (
+                                    <>
+                                      <AlertCircle className="size-3" /> CE/UP
+                                    </>
+                                  )}
+                                  {!status && <span className="opacity-0 hover:opacity-100 text-slate-400">+</span>}
+                                </button>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>
