@@ -1,3 +1,4 @@
+// Force rebuild Vercel
 "use client";
 
 import React, { useState, useEffect } from "react";
@@ -55,7 +56,7 @@ export default function SuperAdminConsole() {
         return;
       }
 
-      // Contournement TypeScript strict pour la table profiles
+      // Bypass TypeScript strict pour la table profiles
       const { data, error: profileError } = await (supabase.from("profiles" as any) as any)
         .select("is_superadmin")
         .eq("id", user.id)
@@ -92,20 +93,20 @@ export default function SuperAdminConsole() {
     }
   };
 
-  // FONCTION POUR CHANGER LE PLAN DIRECTEMENT SANS ERREUR TYPESCRIPT
+  // FONCTION POUR CHANGER LE PLAN DIRECTEMENT
   const handlePlanChange = async (schoolId: string, newPlan: string) => {
     try {
       setUpdatingId(schoolId);
       if (!supabase) return;
 
-      // On force le cast complet du client pour ignorer la contrainte 'never'
+      // Bypass du type 'never' pour la méthode update
       const { error } = await (supabase.from("profiles" as any) as any)
         .update({ subscription_plan: newPlan })
         .eq("id", schoolId);
 
       if (error) throw error;
 
-      // Mettre à jour la liste locale après la modification réussie
+      // Mettre à jour la liste locale
       setSchools((prev) =>
         prev.map((s) => (s.id === schoolId ? { ...s, subscription_plan: newPlan } : s))
       );
