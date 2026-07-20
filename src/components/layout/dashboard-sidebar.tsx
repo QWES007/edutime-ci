@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -12,7 +12,8 @@ import {
   ChevronDown, 
   ChevronRight,
   Sparkles,
-  LogOut
+  LogOut,
+  ShieldCheck
 } from "lucide-react";
 
 interface MenuItem {
@@ -57,10 +58,36 @@ export function DashboardSidebar() {
   const router = useRouter();
   const supabase = createClient();
 
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [openSubmenus, setOpenSubmenus] = useState<Record<string, boolean>>({
     "SCOLARITÉ": true,
     "EMPLOIS DU TEMPS": true,
   });
+
+  // Vérification de la propriété SuperAdmin en base de données
+  useEffect(() => {
+    checkAdminStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const checkAdminStatus = async () => {
+    try {
+      if (!supabase) return;
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data } = await (supabase.from("profiles" as any) as any)
+        .select("is_superadmin")
+        .eq("id", user.id)
+        .single();
+
+      if (data && data.is_superadmin) {
+        setIsSuperAdmin(true);
+      }
+    } catch (e) {
+      console.error("Erreur de vérification superadmin:", e);
+    }
+  };
 
   const toggleSubmenu = (title: string) => {
     setOpenSubmenus((prev) => ({ ...prev, [title]: !prev[title] }));
@@ -91,6 +118,21 @@ export function DashboardSidebar() {
 
         {/* Navigation */}
         <nav className="p-2 space-y-1 overflow-y-auto text-[11px] max-h-[calc(100vh-130px)]">
+          {/* Option SUPERADMIN si activé sur le compte */}
+          {isSuperAdmin && (
+            <Link
+              href="/superadmin"
+              className={`flex items-center gap-2 px-2.5 py-2 rounded-lg font-bold transition-all mb-2 ${
+                pathname === "/superadmin"
+                  ? "bg-amber-500 text-slate-950 font-extrabold shadow-xs"
+                  : "bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20"
+              }`}
+            >
+              <ShieldCheck className="size-4" />
+              <span>SUPERADMIN</span>
+            </Link>
+          )}
+
           {MENU_ITEMS.map((item) => {
             const Icon = item.icon;
             const hasSub = !!item.subItems;
@@ -161,7 +203,7 @@ export function DashboardSidebar() {
         </nav>
       </div>
 
-      {/* Bouton Déconnexion fixé en bas */}
+      {/* Bouton Déconnexion */}
       <div className="p-2 border-t border-slate-800">
         <button
           onClick={handleLogout}
