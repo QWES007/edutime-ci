@@ -1,13 +1,7 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { DashboardHeader } from "@/components/layout/dashboard-sidebar";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Home, Plus, Trash2, FileSpreadsheet, Upload } from "lucide-react";
-import * as XLSX from "xlsx";
+import { useState, useEffect } from "react";
+import { Plus, Trash2, RotateCcw, Home } from "lucide-react";
 
 interface Room {
   id: string;
@@ -16,185 +10,169 @@ interface Room {
   capacity: number;
 }
 
-const SEED_ROOMS: Room[] = [
-  { id: "r1", name: "Salle 01", type: "Standard", capacity: 50 },
-  { id: "r2", name: "Labo Physique", type: "Laboratoire", capacity: 40 },
-];
-
 export default function RoomsPage() {
   const [rooms, setRooms] = useState<Room[]>([]);
-  const [roomName, setRoomName] = useState("");
-  const [roomType, setRoomType] = useState("Standard");
+  const [name, setName] = useState("");
+  const [type, setType] = useState("Salle Standard");
   const [capacity, setCapacity] = useState(50);
-  const [insertMode, setInsertMode] = useState<"manual" | "excel">("manual");
 
   useEffect(() => {
-    const saved = localStorage.getItem("edutime_rooms_live");
+    const saved = localStorage.getItem("edutime_rooms");
     if (saved) {
-      setRooms(JSON.parse(saved));
-    } else {
-      setRooms(SEED_ROOMS);
+      try {
+        setRooms(JSON.parse(saved));
+      } catch (e) {
+        console.error(e);
+      }
     }
   }, []);
 
-  const saveRooms = (updated: Room[]) => {
-    setRooms(updated);
-    localStorage.setItem("edutime_rooms_live", JSON.stringify(updated));
+  const saveRooms = (data: Room[]) => {
+    setRooms(data);
+    localStorage.setItem("edutime_rooms", JSON.stringify(data));
   };
 
-  const handleAddRoom = (e: React.FormEvent) => {
+  const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!roomName.trim()) return;
-
+    if (!name) return;
     const newRoom: Room = {
-      id: `r_${Date.now()}`,
-      name: roomName,
-      type: roomType,
-      capacity: Number(capacity),
+      id: Date.now().toString(),
+      name,
+      type,
+      capacity,
     };
-
-    saveRooms([newRoom, ...rooms]);
-    setRoomName("");
+    saveRooms([...rooms, newRoom]);
+    setName("");
   };
 
-  const handleExcelImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: "binary" });
-        const wsname = wb.SheetNames[0];
-        const ws = wb.Sheets[wsname];
-        const data = XLSX.utils.sheet_to_json(ws) as any[];
-
-        const importedRooms: Room[] = data
-          .filter((row) => row.Salle || row.Nom)
-          .map((row, index) => {
-            return {
-              id: `r_excel_${Date.now()}_${index}`,
-              name: String(row.Salle || row.Nom).trim(),
-              type: String(row.Type || "Standard").trim(),
-              capacity: Number(row.Capacite || row.Capacité || row.Places) || 50,
-            };
-          });
-
-        if (importedRooms.length === 0) {
-          alert("Aucun local valide trouvé. Vérifiez les colonnes 'Salle' et 'Capacité'.");
-          return;
-        }
-
-        saveRooms([...importedRooms, ...rooms]);
-        alert(`${importedRooms.length} local/locaux importé(s) !`);
-        setInsertMode("manual");
-      } catch (err) {
-        console.error(err);
-        alert("Erreur lors de l'importation du fichier Excel.");
-      }
-    };
-    reader.readAsBinaryString(file);
+  const handleDelete = (id: string) => {
+    saveRooms(rooms.filter((r) => r.id !== id));
   };
 
-  const handleDeleteRoom = (id: string) => {
-    if (window.confirm("Supprimer cette salle physique ?")) {
-      saveRooms(rooms.filter((r) => r.id !== id));
+  const handleReset = () => {
+    if (
+      confirm(
+        "Attention : Voulez-vous vraiment réinitialiser toute la liste des salles ?"
+      )
+    ) {
+      localStorage.removeItem("edutime_rooms");
+      localStorage.removeItem("rooms");
+      setRooms([]);
+      window.location.reload();
     }
   };
 
   return (
-    <div className="flex-1 space-y-6 p-8 pt-6">
-      <DashboardHeader
-        title="Salles Physiques"
-        description="Configurez les locaux et infrastructures de votre établissement."
-      />
+    <div className="p-6 space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+            🏛️ Salles Physiques
+          </h1>
+          <p className="text-sm text-slate-400">
+            Configurez les locaux et infrastructures de votre établissement.
+          </p>
+        </div>
+      </div>
 
-      <div className="grid gap-6 md:grid-cols-3">
-        <Card className="shadow-sm">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between border-b pb-2">
-              <span className="text-sm font-bold text-slate-700">Locaux</span>
-              <div className="flex gap-1 bg-muted p-0.5 rounded-lg text-xs">
-                <button
-                  onClick={() => setInsertMode("excel")}
-                  className={`px-2.5 py-1 rounded-md font-medium transition-all ${insertMode === "excel" ? "bg-white shadow-xs font-bold text-primary" : "text-muted-foreground"}`}
-                >
-                  <FileSpreadsheet className="inline size-3.5 mr-1" /> Excel
-                </button>
-                <button
-                  onClick={() => setInsertMode("manual")}
-                  className={`px-2.5 py-1 rounded-md font-medium transition-all ${insertMode === "manual" ? "bg-white shadow-xs font-bold text-primary" : "text-muted-foreground"}`}
-                >
-                  <Plus className="inline size-3.5 mr-1" /> Manuel
-                </button>
-              </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Formulaire */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+          <h2 className="text-lg font-semibold text-white">Locaux</h2>
+          <form onSubmit={handleAdd} className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1">
+                Nom / Numéro de salle
+              </label>
+              <input
+                type="text"
+                placeholder="Ex: Salle 12, Labo Chimie"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+              />
             </div>
-          </CardHeader>
-          <CardContent>
-            {insertMode === "manual" ? (
-              <form onSubmit={handleAddRoom} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="roomName">Nom / Numéro de salle</Label>
-                  <Input id="roomName" placeholder="Ex: Salle 12, Labo Chimi" value={roomName} onChange={(e) => setRoomName(e.target.value)} required />
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1">
+                Type de local
+              </label>
+              <select
+                value={type}
+                onChange={(e) => setType(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+              >
+                <option value="Salle Standard">Salle Standard</option>
+                <option value="Laboratoire">Laboratoire</option>
+                <option value="Salle Informatique">Salle Informatique</option>
+                <option value="Terrain de Sport">Terrain de Sport</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1">
+                Capacité d'accueil
+              </label>
+              <input
+                type="number"
+                value={capacity}
+                onChange={(e) => setCapacity(Number(e.target.value))}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+            <button
+              type="submit"
+              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2 rounded-lg text-sm transition-colors flex items-center justify-center gap-2"
+            >
+              <Plus className="w-4 h-4" /> Enregistrer le local
+            </button>
+          </form>
+        </div>
+
+        {/* Liste */}
+        <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+          <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+            <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
+              Salles Configuées ({rooms.length})
+            </h2>
+            <button
+              type="button"
+              onClick={handleReset}
+              className="px-3 py-1.5 text-xs font-medium text-red-400 hover:text-red-300 border border-red-500/30 hover:border-red-500/60 rounded-lg bg-red-500/10 transition-colors flex items-center gap-1.5 cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5" /> Réinitialiser
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {rooms.map((r) => (
+              <div
+                key={r.id}
+                className="bg-slate-950 border border-slate-800/80 rounded-lg p-3 flex justify-between items-center"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-lg border border-emerald-500/20">
+                    <Home className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-white text-sm">{r.name}</p>
+                    <p className="text-xs text-slate-400">
+                      {r.type} • Max {r.capacity} places
+                    </p>
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="roomType">Type de local</Label>
-                  <select id="roomType" value={roomType} onChange={(e) => setRoomType(e.target.value)} className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm focus:outline-none">
-                    <option value="Standard">Salle Standard</option>
-                    <option value="Laboratoire">Laboratoire / Sciences</option>
-                    <option value="Informatique">Salle Informatique</option>
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="capacity">Capacité d&apos;accueil</Label>
-                  <Input id="capacity" type="number" value={capacity} onChange={(e) => setCapacity(Number(e.target.value))} required />
-                </div>
-                <Button type="submit" className="w-full">Enregistrer le local</Button>
-              </form>
-            ) : (
-              <div className="space-y-4">
-                <div className="border-2 border-dashed border-muted-foreground/20 rounded-xl p-6 text-center hover:bg-muted/30 transition-colors relative cursor-pointer group">
-                  <input type="file" accept=".xlsx, .xls, .csv" onChange={handleExcelImport} className="absolute inset-0 opacity-0 cursor-pointer" />
-                  <Upload className="size-8 mx-auto text-muted-foreground group-hover:text-primary mb-2" />
-                  <p className="text-xs font-bold">Glissez votre fichier Excel ou CSV ici</p>
-                </div>
-                <div className="bg-slate-50 border border-slate-100 p-3 rounded-lg text-[10px] text-slate-500 space-y-1">
-                  <span className="font-bold text-slate-700 block">Colonnes acceptées :</span>
-                  <ul className="list-disc pl-4 space-y-0.5">
-                    <li><strong>Salle</strong> ou <strong>Nom</strong> (ex: Salle B1).</li>
-                    <li><strong>Type</strong> (Standard, Laboratoire, Informatique).</li>
-                    <li><strong>Capacité</strong> ou <strong>Places</strong>.</li>
-                  </ul>
-                </div>
+                <button
+                  onClick={() => handleDelete(r.id)}
+                  className="text-slate-500 hover:text-red-400 p-1.5 rounded-md hover:bg-slate-800 transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
               </div>
+            ))}
+            {rooms.length === 0 && (
+              <p className="text-xs text-slate-500 col-span-2 text-center py-6">
+                Aucune salle configurée.
+              </p>
             )}
-          </CardContent>
-        </Card>
-
-        <div className="md:col-span-2 space-y-4">
-          {rooms.length === 0 ? (
-            <div className="rounded-xl border border-dashed p-8 text-center bg-card">
-              <p className="text-muted-foreground">Aucun local disponible.</p>
-            </div>
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {rooms.map((r) => (
-                <Card key={r.id} className="shadow-xs">
-                  <CardContent className="p-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="bg-primary/10 text-primary p-2.5 rounded-lg"><Home className="size-5" /></div>
-                      <div>
-                        <h4 className="font-bold text-sm">{r.name}</h4>
-                        <p className="text-[11px] text-muted-foreground font-medium">{r.type} · Max {r.capacity} places</p>
-                      </div>
-                    </div>
-                    <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDeleteRoom(r.id)}><Trash2 className="size-4" /></Button>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
+          </div>
         </div>
       </div>
     </div>

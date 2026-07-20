@@ -219,7 +219,7 @@ export default function ClassesPage() {
           Divisions & Classes
         </h1>
         <p className="text-xs text-slate-400 mt-1">
-          Horaires officiels MENA (Circulaire N° 272/MENA/DPFC)[cite: 1]
+          Horaires officiels MENA (Circulaire N° 272/MENA/DPFC)
         </p>
       </div>
 

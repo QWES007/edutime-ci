@@ -1,427 +1,173 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { FileSpreadsheet, Plus, Upload, CheckCircle2, User, Trash2, Save } from "lucide-react";
-import { Card } from "@/components/ui/card";
+import { useState, useEffect } from "react";
+import { Plus, Trash2, RotateCcw, FileSpreadsheet } from "lucide-react";
 
 interface Teacher {
   id: string;
   name: string;
   subject: string;
-  maxHours: number;
-  unavailabilities: Record<string, "dispo" | "indispo" | "ce_up">;
+  weeklyHours: number;
 }
 
-const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
-const SLOTS = [
-  { id: "M1", label: "07h30 - 08h25" },
-  { id: "M2", label: "08h25 - 09h20" },
-  { id: "M3", label: "09h35 - 10h30" },
-  { id: "M4", label: "10h30 - 11h25" },
-  { id: "A1", label: "13h00 - 13h55" },
-  { id: "A2", label: "13h55 - 14h50" },
-  { id: "A3", label: "15h05 - 16h00" },
-  { id: "A4", label: "16h00 - 16h55" },
-];
-
-const LOCAL_STORAGE_KEY = "edutime_teachers_list";
-
 export default function TeachersPage() {
-  const [entryMode, setEntryMode] = useState<"manual" | "excel">("manual");
   const [teachers, setTeachers] = useState<Teacher[]>([]);
-  const [isLoaded, setIsLoaded] = useState(false);
-
   const [name, setName] = useState("");
   const [subject, setSubject] = useState("");
-  const [maxHours, setMaxHours] = useState(18);
-  const [selectedTeacherId, setSelectedTeacherId] = useState<string | null>(null);
+  const [weeklyHours, setWeeklyHours] = useState(18);
 
-  // 1. Charger la liste sauvegardée au démarrage
   useEffect(() => {
-    const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+    const saved = localStorage.getItem("edutime_teachers");
     if (saved) {
       try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setTeachers(parsed);
-          setSelectedTeacherId(parsed[0].id);
-        } else {
-          loadDefaultTeachers();
-        }
+        setTeachers(JSON.parse(saved));
       } catch (e) {
-        console.error("Erreur de lecture du localStorage", e);
-        loadDefaultTeachers();
+        console.error(e);
       }
-    } else {
-      loadDefaultTeachers();
     }
-    setIsLoaded(true);
   }, []);
 
-  const loadDefaultTeachers = () => {
-    const initial: Teacher[] = [
-      { id: "1", name: "M. Gomez Paul", subject: "MATHS", maxHours: 18, unavailabilities: {} }
-    ];
-    setTeachers(initial);
-    setSelectedTeacherId("1");
+  const saveTeachers = (data: Teacher[]) => {
+    setTeachers(data);
+    localStorage.setItem("edutime_teachers", JSON.stringify(data));
   };
 
-  // 2. Sauvegarder automatiquement dès que la liste des enseignants change
-  useEffect(() => {
-    if (isLoaded) {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(teachers));
-    }
-  }, [teachers, isLoaded]);
-
-  const selectedTeacher = teachers.find((t) => t.id === selectedTeacherId);
-
-  const handleAddTeacher = (e: React.FormEvent) => {
+  const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !subject) return;
-
     const newTeacher: Teacher = {
       id: Date.now().toString(),
       name,
-      subject: subject.toUpperCase(),
-      maxHours: Number(maxHours),
-      unavailabilities: {},
+      subject,
+      weeklyHours,
     };
-
-    setTeachers((prev) => [newTeacher, ...prev]);
-    setSelectedTeacherId(newTeacher.id);
+    saveTeachers([...teachers, newTeacher]);
     setName("");
     setSubject("");
-    setMaxHours(18);
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      const text = evt.target?.result as string;
-      if (!text) return;
-
-      const lines = text.split(/\r\n|\n/);
-      const newTeachers: Teacher[] = [];
-
-      lines.forEach((line, index) => {
-        if (index === 0 && (line.toLowerCase().includes("nom") || line.toLowerCase().includes("name"))) return;
-        if (!line.trim()) return;
-
-        const columns = line.split(/[,;]/);
-        if (columns.length >= 2) {
-          const teacherName = columns[0].trim().replace(/^["']|["']$/g, "");
-          const teacherSubject = columns[1].trim().replace(/^["']|["']$/g, "").toUpperCase();
-          const teacherHours = columns[2] ? parseInt(columns[2].trim(), 10) : 18;
-
-          if (teacherName && teacherSubject) {
-            newTeachers.push({
-              id: Date.now().toString() + Math.random().toString().slice(2, 6),
-              name: teacherName,
-              subject: teacherSubject,
-              maxHours: isNaN(teacherHours) ? 18 : teacherHours,
-              unavailabilities: {},
-            });
-          }
-        }
-      });
-
-      if (newTeachers.length > 0) {
-        setTeachers((prev) => {
-          const updated = [...newTeachers, ...prev];
-          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
-          return updated;
-        });
-        setSelectedTeacherId(newTeachers[0].id);
-        setEntryMode("manual");
-      }
-    };
-
-    reader.readAsText(file);
+  const handleDelete = (id: string) => {
+    saveTeachers(teachers.filter((t) => t.id !== id));
   };
 
-  const toggleSlotState = (day: string, slotId: string) => {
-    if (!selectedTeacherId) return;
-
-    const key = `${day}-${slotId}`;
-    setTeachers((prev) =>
-      prev.map((t) => {
-        if (t.id !== selectedTeacherId) return t;
-
-        const currentStatus = t.unavailabilities[key] || "dispo";
-        let nextStatus: "dispo" | "indispo" | "ce_up" = "indispo";
-
-        if (currentStatus === "indispo") nextStatus = "ce_up";
-        else if (currentStatus === "ce_up") nextStatus = "dispo";
-
-        const updatedUnavailabilities = { ...t.unavailabilities };
-        if (nextStatus === "dispo") {
-          delete updatedUnavailabilities[key];
-        } else {
-          updatedUnavailabilities[key] = nextStatus;
-        }
-
-        return { ...t, unavailabilities: updatedUnavailabilities };
-      })
-    );
+  const handleReset = () => {
+    if (
+      confirm(
+        "Attention : Voulez-vous vraiment réinitialiser toute la liste des enseignants ?"
+      )
+    ) {
+      localStorage.removeItem("edutime_teachers");
+      localStorage.removeItem("teachers");
+      setTeachers([]);
+      window.location.reload();
+    }
   };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-extrabold text-white tracking-tight flex items-center gap-2">
-          <User className="size-5 text-emerald-400" />
-          Enseignants & Dispos
-        </h1>
-        <p className="text-xs text-slate-400 mt-1">
-          Configurez votre corps professoral, leurs matières et leurs contraintes d&apos;emploi du temps.
-        </p>
+    <div className="p-6 space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+            👨‍🏫 Enseignants & Dispos
+          </h1>
+          <p className="text-sm text-slate-400">
+            Configurez votre corps professoral et leurs matières.
+          </p>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Formulaire & Liste Enseignants */}
-        <div className="lg:col-span-4 space-y-4">
-          <Card className="bg-white p-5 rounded-2xl shadow-xl text-slate-800 border-0">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
-              <h2 className="font-extrabold text-sm text-slate-900">Enseignants</h2>
-
-              <div className="flex bg-slate-100 p-1 rounded-lg gap-1 border border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => setEntryMode("excel")}
-                  className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
-                    entryMode === "excel"
-                      ? "bg-emerald-600 text-white shadow-xs"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <FileSpreadsheet className="size-3.5" />
-                  <span>Excel</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setEntryMode("manual")}
-                  className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
-                    entryMode === "manual"
-                      ? "bg-emerald-600 text-white shadow-xs"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <Plus className="size-3.5" />
-                  <span>Manuel</span>
-                </button>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Formulaire */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+          <h2 className="text-lg font-semibold text-white">Enseignants</h2>
+          <form onSubmit={handleAdd} className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1">
+                Nom complet
+              </label>
+              <input
+                type="text"
+                placeholder="Ex: M. Gomez Paul"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1">
+                  Discipline
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ex: MATHS"
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1">
+                  Volume Horaire
+                </label>
+                <input
+                  type="number"
+                  value={weeklyHours}
+                  onChange={(e) => setWeeklyHours(Number(e.target.value))}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+                />
               </div>
             </div>
-
-            {entryMode === "excel" ? (
-              <div className="space-y-4 py-2">
-                <div className="border-2 border-dashed border-emerald-300 bg-emerald-50/50 rounded-xl p-6 text-center flex flex-col items-center justify-center gap-2 transition-all hover:bg-emerald-50 cursor-pointer relative">
-                  <input
-                    type="file"
-                    accept=".csv, .txt, .xlsx, .xls"
-                    onChange={handleFileUpload}
-                    className="absolute inset-0 opacity-0 cursor-pointer"
-                  />
-                  <Upload className="size-8 text-emerald-600" />
-                  <p className="text-xs font-bold text-slate-800">
-                    Déposez votre fichier Excel / CSV ici
-                  </p>
-                  <p className="text-[10px] text-slate-500 font-medium">
-                    Colonnes : Nom, Discipline, Volume Horaire
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <form onSubmit={handleAddTeacher} className="space-y-4">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    Nom complet
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ex: M. Gomez Paul"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                      Discipline
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Ex: MATHS"
-                      value={subject}
-                      onChange={(e) => setSubject(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none focus:border-emerald-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                      Volume Horaire
-                    </label>
-                    <input
-                      type="number"
-                      required
-                      min={1}
-                      max={30}
-                      value={maxHours}
-                      onChange={(e) => setMaxHours(Number(e.target.value))}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none focus:border-emerald-500"
-                    />
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  className="w-full bg-emerald-700 hover:bg-emerald-600 text-white font-extrabold text-xs py-2.5 rounded-lg transition-all cursor-pointer shadow-sm"
-                >
-                  Enregistrer l&apos;enseignant
-                </button>
-              </form>
-            )}
-          </Card>
-
-          <Card className="bg-slate-900 border-slate-800 p-4 text-slate-200">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                Liste des Enseignants ({teachers.length})
-              </h3>
-              <span className="text-[10px] text-emerald-400 font-medium flex items-center gap-1">
-                <Save className="size-3" /> Sauvegarde auto
-              </span>
-            </div>
-            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-              {teachers.map((t) => (
-                <div
-                  key={t.id}
-                  onClick={() => setSelectedTeacherId(t.id)}
-                  className={`p-2.5 rounded-lg border text-xs flex items-center justify-between cursor-pointer transition-all ${
-                    selectedTeacherId === t.id
-                      ? "bg-emerald-500/10 border-emerald-500/40 text-white font-bold"
-                      : "bg-slate-950/40 border-slate-800 text-slate-300 hover:bg-slate-800/50"
-                  }`}
-                >
-                  <div>
-                    <p className="font-bold">{t.name}</p>
-                    <p className="text-[10px] text-slate-400 font-mono">
-                      {t.subject} &bull; {t.maxHours}h / semaine
-                    </p>
-                  </div>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setTeachers((prev) => prev.filter((item) => item.id !== t.id));
-                      if (selectedTeacherId === t.id) setSelectedTeacherId(null);
-                    }}
-                    className="text-slate-500 hover:text-rose-400 p-1"
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </Card>
+            <button
+              type="submit"
+              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2 rounded-lg text-sm transition-colors flex items-center justify-center gap-2"
+            >
+              <Plus className="w-4 h-4" /> Enregistrer l'enseignant
+            </button>
+          </form>
         </div>
 
-        {/* Grille Interactive des Disponibilités */}
-        <div className="lg:col-span-8">
-          <Card className="bg-white p-5 rounded-2xl shadow-xl text-slate-800 border-0 h-full">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-3 mb-4 gap-2">
-              <div>
-                <h2 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
-                  <CheckCircle2 className="size-4 text-emerald-600" />
-                  Grille des Disponibilités Hebdomadaires
-                </h2>
-                {selectedTeacher && (
-                  <p className="text-xs text-emerald-700 font-bold mt-0.5">
-                    Enseignant sélectionné : {selectedTeacher.name} ({selectedTeacher.subject})
+        {/* Liste */}
+        <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+          <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+            <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
+              Liste des enseignants ({teachers.length})
+            </h2>
+            <button
+              type="button"
+              onClick={handleReset}
+              className="px-3 py-1.5 text-xs font-medium text-red-400 hover:text-red-300 border border-red-500/30 hover:border-red-500/60 rounded-lg bg-red-500/10 transition-colors flex items-center gap-1.5 cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5" /> Réinitialiser
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {teachers.map((t) => (
+              <div
+                key={t.id}
+                className="bg-slate-950 border border-slate-800/80 rounded-lg p-3 flex justify-between items-center"
+              >
+                <div>
+                  <p className="font-medium text-white text-sm">{t.name}</p>
+                  <p className="text-xs text-slate-400">
+                    {t.subject} • {t.weeklyHours}h / semaine
                   </p>
-                )}
+                </div>
+                <button
+                  onClick={() => handleDelete(t.id)}
+                  className="text-slate-500 hover:text-red-400 p-1.5 rounded-md hover:bg-slate-800 transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
               </div>
-
-              {/* Légende */}
-              <div className="flex items-center gap-3 text-[10px] font-bold shrink-0">
-                <span className="flex items-center gap-1 text-slate-600">
-                  <span className="size-2.5 rounded bg-slate-100 border border-slate-300"></span> Dispo
-                </span>
-                <span className="flex items-center gap-1 text-rose-600">
-                  <span className="size-2.5 rounded bg-rose-500"></span> Indispo
-                </span>
-                <span className="flex items-center gap-1 text-amber-600">
-                  <span className="size-2.5 rounded bg-amber-500"></span> CE / UP
-                </span>
-              </div>
-            </div>
-
-            {selectedTeacher ? (
-              <div className="overflow-x-auto">
-                <table className="w-full text-center text-xs border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-200 bg-slate-50">
-                      <th className="p-2 text-[10px] text-slate-500 font-bold uppercase w-24">Créneau</th>
-                      {DAYS.map((day) => (
-                        <th key={day} className="p-2 text-slate-800 font-extrabold text-center">
-                          {day}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {SLOTS.map((slot) => (
-                      <tr key={slot.id} className="hover:bg-slate-50/50">
-                        <td className="p-2 text-[10px] text-slate-500 font-mono font-bold bg-slate-50/50">
-                          <div>{slot.id}</div>
-                          <div className="text-[9px] text-slate-400 font-normal">{slot.label}</div>
-                        </td>
-
-                        {DAYS.map((day) => {
-                          const key = `${day}-${slot.id}`;
-                          const status = selectedTeacher.unavailabilities[key] || "dispo";
-
-                          let bgClass = "bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200";
-                          let labelText = "Dispo";
-
-                          if (status === "indispo") {
-                            bgClass = "bg-rose-500 text-white font-bold border-rose-600 shadow-xs";
-                            labelText = "INDISPO";
-                          } else if (status === "ce_up") {
-                            bgClass = "bg-amber-500 text-white font-bold border-amber-600 shadow-xs";
-                            labelText = "CE / UP";
-                          }
-
-                          return (
-                            <td key={day} className="p-1">
-                              <button
-                                type="button"
-                                onClick={() => toggleSlotState(day, slot.id)}
-                                className={`w-full py-2 px-1 rounded-lg border text-[10px] font-bold transition-all cursor-pointer ${bgClass}`}
-                              >
-                                {labelText}
-                              </button>
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="text-center py-24 text-slate-400 text-xs">
-                Sélectionnez un enseignant dans la liste à gauche pour afficher et éditer sa grille de disponibilités.
-              </div>
+            ))}
+            {teachers.length === 0 && (
+              <p className="text-xs text-slate-500 col-span-2 text-center py-6">
+                Aucun enseignant enregistré.
+              </p>
             )}
-          </Card>
+          </div>
         </div>
       </div>
     </div>
