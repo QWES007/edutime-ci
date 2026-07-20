@@ -87,7 +87,7 @@ export default function SuperAdminConsole() {
         .order("school_name", { ascending: true });
 
       if (error) throw error;
-      setSchools(data || []);
+      setSchools((data as ProfileRow[]) || []);
     } catch (err) {
       console.error("Erreur lors de la récupération des écoles :", err);
     }
@@ -99,9 +99,10 @@ export default function SuperAdminConsole() {
       setUpdatingId(schoolId);
       if (!supabase) return;
 
+      // Correction TypeScript : Cast explicite pour la méthode update
       const { error } = await supabase
         .from("profiles")
-        .update({ subscription_plan: newPlan })
+        .update({ subscription_plan: newPlan } as any)
         .eq("id", schoolId);
 
       if (error) throw error;
@@ -308,7 +309,6 @@ export default function SuperAdminConsole() {
                         {school.contact_name}
                       </td>
                       <td className="px-6 py-4">
-                        {/* MENU DÉROULANT INTERACTIF */}
                         <select
                           value={school.subscription_plan || "free"}
                           disabled={updatingId === school.id}
