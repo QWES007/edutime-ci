@@ -55,8 +55,8 @@ export default function SuperAdminConsole() {
         return;
       }
 
-      const { data, error: profileError } = await supabase
-        .from("profiles")
+      // Contournement TypeScript avec 'as any' sur le nom de table
+      const { data, error: profileError } = await (supabase.from("profiles" as any) as any)
         .select("is_superadmin")
         .eq("id", user.id)
         .single();
@@ -81,8 +81,7 @@ export default function SuperAdminConsole() {
     try {
       if (!supabase) return;
       
-      const { data, error } = await supabase
-        .from("profiles")
+      const { data, error } = await (supabase.from("profiles" as any) as any)
         .select("*")
         .order("school_name", { ascending: true });
 
@@ -99,10 +98,9 @@ export default function SuperAdminConsole() {
       setUpdatingId(schoolId);
       if (!supabase) return;
 
-      // Correction TypeScript : Cast explicite pour la méthode update
-      const { error } = await supabase
-        .from("profiles")
-        .update({ subscription_plan: newPlan } as any)
+      // Cast du QueryBuilder pour outrepasser le 'never' de TypeScript
+      const { error } = await (supabase.from("profiles" as any) as any)
+        .update({ subscription_plan: newPlan })
         .eq("id", schoolId);
 
       if (error) throw error;
