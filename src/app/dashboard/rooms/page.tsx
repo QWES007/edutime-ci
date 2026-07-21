@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Home, Plus, Trash2, FileSpreadsheet, Upload, RotateCcw } from "lucide-react";
+import { Home, Plus, Trash2, FileSpreadsheet, Upload, RotateCcw, Edit2 } from "lucide-react";
 import * as XLSX from "xlsx";
 
 interface Room {
@@ -30,6 +30,7 @@ const parseSafeNumber = (val: any, fallback: number): number => {
 export default function RoomsPage() {
   const supabase = createClient();
   const [rooms, setRooms] = useState<Room[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [roomName, setRoomName] = useState("");
   const [roomType, setRoomType] = useState("Standard");
   const [capacity, setCapacity] = useState(50);
@@ -38,63 +39,85 @@ export default function RoomsPage() {
 
   useEffect(() => {
     setIsMounted(true);
-
     const syncAndLoadRooms = async () => {
-      const savedLocal = typeof window !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null;
       let localRooms: Room[] = [];
+      const savedLocal = typeof window !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null;
       if (savedLocal) {
-        try {
-          localRooms = JSON.parse(savedLocal);
-        } catch (e) {
-          console.error(e);
-        }
+        try { localRooms = JSON.parse(savedLocal); } catch (e) { console.error(e); }
       }
 
       if (supabase) {
         try {
           const { data: remoteRooms } = await supabase.from("rooms").select("*");
-
           if (remoteRooms && remoteRooms.length > 0) {
             setRooms(remoteRooms);
             localStorage.setItem(STORAGE_KEY, JSON.stringify(remoteRooms));
             return;
           }
-        } catch (err) {
-          console.error("Erreur Supabase Rooms :", err);
-        }
+        } catch (err) { console.error("Erreur Supabase Rooms :", err); }
       }
-
       setRooms(localRooms);
     };
-
     syncAndLoadRooms();
   }, []);
 
-  const handleAddRoom = async (e: React.FormEvent) => {
+  const handleSelectRoomForEdit = (room: Room) => {
+    setEditingId(room.id);
+    setRoomName(room.name);
+    setRoomType(room.type);
+    setCapacity(room.capacity);
+    setInsertMode("manual");
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setRoomName("");
+    setRoomType("Standard");
+    setCapacity(50);
+  };
+
+  const handleSaveRoom = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!roomName.trim()) return;
 
-    const newRoom: Room = {
-      id: crypto.randomUUID(),
-      name: roomName.trim(),
-      type: roomType,
-      capacity: parseSafeNumber(capacity, 50),
-    };
+    if (editingId) {
+      // Modification
+      const updatedRooms = rooms.map((r) =>
+        r.id === editingId ? { ...r, name: roomName.trim(), type: roomType, capacity: parseSafeNumber(capacity, 50) } : r
+      );
+      setRooms(updatedRooms);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedRooms));
 
-    const updated = [newRoom, ...rooms];
-    setRooms(updated);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      if (supabase) {
+        await supabase.from("rooms").update({
+          name: roomName.trim(),
+          type: roomType.toLowerCase(),
+          capacity: parseSafeNumber(capacity, 50)
+        }).eq("id", editingId);
+      }
+      handleCancelEdit();
+    } else {
+      // Ajout Nouveau
+      const newRoom: Room = {
+        id: crypto.randomUUID(),
+        name: roomName.trim(),
+        type: roomType,
+        capacity: parseSafeNumber(capacity, 50),
+      };
+      const updated = [newRoom, ...rooms];
+      setRooms(updated);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 
-    if (supabase) {
-      await supabase.from("rooms").insert([{
-        id: newRoom.id,
-        name: newRoom.name,
-        type: newRoom.type.toLowerCase(),
-        capacity: newRoom.capacity,
-      }]);
+      if (supabase) {
+        await supabase.from("rooms").insert([{
+          id: newRoom.id,
+          name: newRoom.name,
+          type: newRoom.type.toLowerCase(),
+          capacity: newRoom.capacity,
+        }]);
+      }
+      setRoomName("");
     }
-
-    setRoomName("");
   };
 
   const handleExcelImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -115,7 +138,6 @@ export default function RoomsPage() {
         data.forEach((row) => {
           const keys = Object.keys(row);
           if (keys.length === 0) return;
-
           const nameKey = keys.find(k => /salle|nom|local/i.test(k)) || keys[0];
           const typeKey = keys.find(k => /type|cat/i.test(k));
           const capKey = keys.find(k => /capa|place|effect/i.test(k));
@@ -130,26 +152,12 @@ export default function RoomsPage() {
             const cleanType = String(rawType).trim();
             const cleanCap = parseSafeNumber(rawCapacity, 50);
 
-            importedRooms.push({
-              id,
-              name: cleanName,
-              type: cleanType,
-              capacity: cleanCap,
-            });
-
-            supabasePayloads.push({
-              id,
-              name: cleanName,
-              type: cleanType.toLowerCase(),
-              capacity: cleanCap,
-            });
+            importedRooms.push({ id, name: cleanName, type: cleanType, capacity: cleanCap });
+            supabasePayloads.push({ id, name: cleanName, type: cleanType.toLowerCase(), capacity: cleanCap });
           }
         });
 
-        if (importedRooms.length === 0) {
-          alert("Fichier vide ou illisible.");
-          return;
-        }
+        if (importedRooms.length === 0) return alert("Aucune donnée lue.");
 
         const merged = [...importedRooms, ...rooms];
         setRooms(merged);
@@ -157,94 +165,61 @@ export default function RoomsPage() {
 
         if (supabase) {
           const { error } = await supabase.from("rooms").insert(supabasePayloads);
-          if (error) {
-            alert(`Erreur Supabase : ${error.message}`);
-          } else {
-            alert(`${importedRooms.length} salle(s) insérée(s) dans Supabase !`);
-          }
+          if (error) alert(`Erreur : ${error.message}`);
+          else alert(`${importedRooms.length} salle(s) insérée(s) !`);
         }
-
         setInsertMode("manual");
-      } catch (err: any) {
-        alert(`Erreur lecture fichier : ${err.message}`);
-      }
+      } catch (err: any) { alert(`Erreur : ${err.message}`); }
     };
-
     reader.readAsArrayBuffer(file);
   };
 
-  const handleDeleteRoom = async (id: string) => {
+  const handleDeleteRoom = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
     const filtered = rooms.filter((r) => r.id !== id);
     setRooms(filtered);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+    if (editingId === id) handleCancelEdit();
 
     if (supabase) {
       await supabase.from("rooms").delete().eq("id", id);
     }
   };
 
-  const handleResetRooms = async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    setRooms([]);
-    localStorage.removeItem(STORAGE_KEY);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
-
-    if (supabase) {
-      await supabase.from("rooms").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-    }
-  };
-
-  if (!isMounted) {
-    return (
-      <div className="flex-1 space-y-6 p-8 pt-6">
-        <DashboardHeader title="Salles Physiques" description="Configurez les locaux." />
-        <div className="p-8 text-xs text-slate-400">Chargement...</div>
-      </div>
-    );
-  }
+  if (!isMounted) return <div className="p-8 text-xs text-slate-400">Chargement...</div>;
 
   return (
     <div className="flex-1 space-y-6 p-8 pt-6">
-      <DashboardHeader title="Salles Physiques" description="Configurez les locaux et infrastructures de votre établissement." />
+      <DashboardHeader title="Salles Physiques" description="Cliquez sur une salle pour la modifier ou ajuster sa capacité." />
 
       <div className="grid gap-6 md:grid-cols-3">
         <Card className="shadow-sm">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between border-b pb-2">
-              <span className="text-sm font-bold text-slate-700">Locaux</span>
-              <div className="flex items-center gap-2">
+              <span className="text-sm font-bold text-slate-700">
+                {editingId ? "Modifier la Salle" : "Locaux"}
+              </span>
+              <div className="flex gap-1 bg-muted p-0.5 rounded-lg text-xs">
                 <button
                   type="button"
-                  onClick={handleResetRooms}
-                  className="h-7 text-[10px] text-rose-500 border border-rose-200 hover:bg-rose-50 px-2.5 py-1 rounded-md font-bold transition-all flex items-center gap-1 cursor-pointer"
+                  onClick={() => setInsertMode("excel")}
+                  className={`px-2.5 py-1 rounded-md font-medium transition-all ${insertMode === "excel" ? "bg-white shadow-xs font-bold text-primary" : "text-muted-foreground"}`}
                 >
-                  <RotateCcw className="size-3" /> Réinitialiser
+                  <FileSpreadsheet className="inline size-3.5 mr-1" /> Excel
                 </button>
-
-                <div className="flex gap-1 bg-muted p-0.5 rounded-lg text-xs">
-                  <button
-                    type="button"
-                    onClick={() => setInsertMode("excel")}
-                    className={`px-2.5 py-1 rounded-md font-medium transition-all ${insertMode === "excel" ? "bg-white shadow-xs font-bold text-primary" : "text-muted-foreground"}`}
-                  >
-                    <FileSpreadsheet className="inline size-3.5 mr-1" /> Excel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setInsertMode("manual")}
-                    className={`px-2.5 py-1 rounded-md font-medium transition-all ${insertMode === "manual" ? "bg-white shadow-xs font-bold text-primary" : "text-muted-foreground"}`}
-                  >
-                    <Plus className="inline size-3.5 mr-1" /> Manuel
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setInsertMode("manual")}
+                  className={`px-2.5 py-1 rounded-md font-medium transition-all ${insertMode === "manual" ? "bg-white shadow-xs font-bold text-primary" : "text-muted-foreground"}`}
+                >
+                  <Plus className="inline size-3.5 mr-1" /> Manuel
+                </button>
               </div>
             </div>
           </CardHeader>
           <CardContent>
             {insertMode === "manual" ? (
-              <form onSubmit={handleAddRoom} className="space-y-4">
+              <form onSubmit={handleSaveRoom} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="roomName">Nom / Numéro de salle</Label>
                   <Input id="roomName" placeholder="Ex: Salle 12, Labo Chimie" value={roomName} onChange={(e) => setRoomName(e.target.value)} required />
@@ -261,7 +236,16 @@ export default function RoomsPage() {
                   <Label htmlFor="capacity">Capacité d&apos;accueil</Label>
                   <Input id="capacity" type="number" value={capacity} onChange={(e) => setCapacity(Number(e.target.value))} required />
                 </div>
-                <Button type="submit" className="w-full">Enregistrer le local</Button>
+                <div className="flex gap-2">
+                  <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700">
+                    {editingId ? "Mettre à jour" : "Enregistrer le local"}
+                  </Button>
+                  {editingId && (
+                    <Button type="button" variant="outline" onClick={handleCancelEdit}>
+                      Annuler
+                    </Button>
+                  )}
+                </div>
               </form>
             ) : (
               <div className="space-y-4">
@@ -275,29 +259,35 @@ export default function RoomsPage() {
           </CardContent>
         </Card>
 
+        {/* Liste des Salles Cliquables */}
         <div className="md:col-span-2 space-y-4">
-          {rooms.length === 0 ? (
-            <div className="rounded-xl border border-dashed p-8 text-center bg-card">
-              <p className="text-muted-foreground">Aucun local disponible.</p>
-            </div>
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {rooms.map((r) => (
-                <Card key={r.id} className="shadow-xs">
-                  <CardContent className="p-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="bg-primary/10 text-primary p-2.5 rounded-lg"><Home className="size-5" /></div>
-                      <div>
-                        <h4 className="font-bold text-sm">{r.name}</h4>
-                        <p className="text-[11px] text-muted-foreground font-medium">{r.type} · Max {r.capacity} places</p>
-                      </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {rooms.map((r) => (
+              <Card
+                key={r.id}
+                onClick={() => handleSelectRoomForEdit(r)}
+                className={`shadow-xs cursor-pointer transition-all border ${
+                  editingId === r.id ? "border-emerald-500 bg-emerald-500/10 ring-2 ring-emerald-500/30" : "hover:border-slate-400"
+                }`}
+              >
+                <CardContent className="p-4 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-primary/10 text-primary p-2.5 rounded-lg"><Home className="size-5" /></div>
+                    <div>
+                      <h4 className="font-bold text-sm flex items-center gap-2">
+                        {r.name}
+                        <Edit2 className="size-3 text-slate-400 opacity-0 group-hover:opacity-100" />
+                      </h4>
+                      <p className="text-[11px] text-muted-foreground font-medium">{r.type} · Max {r.capacity} places</p>
                     </div>
-                    <Button variant="ghost" size="icon" className="text-destructive cursor-pointer" onClick={() => handleDeleteRoom(r.id)}><Trash2 className="size-4" /></Button>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
+                  </div>
+                  <Button variant="ghost" size="icon" className="text-destructive cursor-pointer" onClick={(e) => handleDeleteRoom(r.id, e)}>
+                    <Trash2 className="size-4" />
+                  </Button>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         </div>
       </div>
     </div>
