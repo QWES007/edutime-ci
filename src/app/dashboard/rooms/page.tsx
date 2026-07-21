@@ -26,15 +26,12 @@ export default function RoomsPage() {
   const [roomType, setRoomType] = useState("Standard");
   const [capacity, setCapacity] = useState(50);
   const [insertMode, setInsertMode] = useState<"manual" | "excel">("manual");
-  
-  // État de montage pour éviter l'erreur d'hydratation Next.js #418
   const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
-    setIsMounted(true); // Signale à React que nous sommes 100% côté client
+    setIsMounted(true);
 
     const syncAndLoadRooms = async () => {
-      // 1. Chargement local
       const savedLocal = typeof window !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null;
       let localRooms: Room[] = [];
       if (savedLocal) {
@@ -45,18 +42,16 @@ export default function RoomsPage() {
         }
       }
 
-      // 2. Synchro Supabase
       if (supabase) {
         try {
-          const { data: remoteRooms, error: selectError } = await supabase.from("rooms").select("*");
+          const { data: remoteRooms } = await supabase.from("rooms").select("*");
 
-          if (!selectError && remoteRooms && remoteRooms.length > 0) {
+          if (remoteRooms && remoteRooms.length > 0) {
             setRooms(remoteRooms);
             localStorage.setItem(STORAGE_KEY, JSON.stringify(remoteRooms));
             return;
           }
 
-          // Si Supabase est vide mais LocalStorage a des données
           if (localRooms.length > 0 && (!remoteRooms || remoteRooms.length === 0)) {
             const formattedRooms = localRooms.map((r) => ({
               id: r.id && r.id.length === 36 ? r.id : crypto.randomUUID(),
@@ -73,7 +68,7 @@ export default function RoomsPage() {
             }
           }
         } catch (err) {
-          console.error("Erreur Supabase :", err);
+          console.error("Erreur Supabase Rooms :", err);
         }
       }
 
@@ -99,7 +94,12 @@ export default function RoomsPage() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 
     if (supabase) {
-      await supabase.from("rooms").insert([newRoom]);
+      await supabase.from("rooms").insert([{
+        id: newRoom.id,
+        name: newRoom.name,
+        type: newRoom.type,
+        capacity: newRoom.capacity,
+      }]);
     }
 
     setRoomName("");
@@ -112,36 +112,61 @@ export default function RoomsPage() {
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: "binary" });
+        const buffer = evt.target?.result as ArrayBuffer;
+        const wb = XLSX.read(buffer, { type: "array" });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const data = XLSX.utils.sheet_to_json(ws) as any[];
 
-        const importedRooms: Room[] = data
-          .filter((row) => row.Salle || row.Nom)
-          .map((row) => ({
-            id: crypto.randomUUID(),
-            name: String(row.Salle || row.Nom).trim(),
-            type: String(row.Type || "Standard").trim(),
-            capacity: Number(row.Capacite || row.Capacité || row.Places) || 50,
-          }));
+        const importedRooms: Room[] = [];
 
-        if (importedRooms.length === 0) return;
+        data.forEach((row) => {
+          // Détection automatique du nom de la salle
+          const rawName = row.Salle || row.SALLE || row.Nom || row.NOM || row.Local || row.LOCAL || row["Nom de la salle"] || row["Nom salle"];
+          const rawType = row.Type || row.TYPE || row.Categorie || row.CATEGORIE || "Standard";
+          const rawCapacity = row.Capacite || row.Capacité || row.CAPACITE || row.Places || row.PLACES || row.Effectif || 50;
+
+          if (rawName) {
+            importedRooms.push({
+              id: crypto.randomUUID(),
+              name: String(rawName).trim(),
+              type: String(rawType).trim(),
+              capacity: Number(rawCapacity) || 50,
+            });
+          }
+        });
+
+        if (importedRooms.length === 0) {
+          alert("Aucune salle n'a pu être lue dans le fichier Excel. Vérifiez les en-têtes (ex: Salle, Type, Capacité).");
+          return;
+        }
 
         const merged = [...importedRooms, ...rooms];
         setRooms(merged);
         localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
 
         if (supabase) {
-          await supabase.from("rooms").insert(importedRooms);
+          const payloadSupabase = importedRooms.map((r) => ({
+            id: r.id,
+            name: r.name,
+            type: r.type,
+            capacity: r.capacity,
+          }));
+
+          const { error } = await supabase.from("rooms").insert(payloadSupabase);
+          if (error) {
+            console.error("Erreur d'insertion Supabase Rooms Excel :", error.message);
+          } else {
+            console.log("Salles importées enregistrées dans Supabase !");
+          }
         }
 
         setInsertMode("manual");
       } catch (err) {
-        console.error(err);
+        console.error("Erreur lecture Excel Salles :", err);
       }
     };
-    reader.readAsBinaryString(file);
+
+    reader.readAsArrayBuffer(file);
   };
 
   const handleDeleteRoom = async (id: string) => {
@@ -167,14 +192,10 @@ export default function RoomsPage() {
     }
   };
 
-  // Empêche le rendu serveur de créer le conflit d'hydratation (Erreur #418)
   if (!isMounted) {
     return (
       <div className="flex-1 space-y-6 p-8 pt-6">
-        <DashboardHeader
-          title="Salles Physiques"
-          description="Configurez les locaux et infrastructures de votre établissement."
-        />
+        <DashboardHeader title="Salles Physiques" description="Configurez les locaux de votre établissement." />
         <div className="p-8 text-xs text-slate-400">Chargement de l&apos;interface...</div>
       </div>
     );
@@ -182,10 +203,7 @@ export default function RoomsPage() {
 
   return (
     <div className="flex-1 space-y-6 p-8 pt-6">
-      <DashboardHeader
-        title="Salles Physiques"
-        description="Configurez les locaux et infrastructures de votre établissement."
-      />
+      <DashboardHeader title="Salles Physiques" description="Configurez les locaux et infrastructures de votre établissement." />
 
       <div className="grid gap-6 md:grid-cols-3">
         <Card className="shadow-sm">

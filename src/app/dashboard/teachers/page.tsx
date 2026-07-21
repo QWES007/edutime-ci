@@ -89,7 +89,6 @@ export default function TeachersPage() {
           }
 
           if (localTeachers.length > 0 && (!remoteTeachers || remoteTeachers.length === 0)) {
-            // Uniquement les colonnes reelles de Supabase : id, name, subjects, max_hours_per_week
             const formattedTeachers = localTeachers.map((t) => ({
               id: t.id && t.id.length === 36 ? t.id : crypto.randomUUID(),
               name: t.name,
@@ -103,8 +102,6 @@ export default function TeachersPage() {
               setSelectedTeacherId(localTeachers[0].id);
               localStorage.setItem(STORAGE_KEY, JSON.stringify(localTeachers));
               return;
-            } else {
-              console.error("Erreur Synchro Supabase Teachers :", insertError.message);
             }
           }
         } catch (err) {
@@ -139,7 +136,6 @@ export default function TeachersPage() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 
     if (supabase) {
-      // Uniquement les champs réels de ta table teachers
       const payloadSupabase = {
         id: newTeacherId,
         name: name.trim(),
@@ -149,9 +145,7 @@ export default function TeachersPage() {
 
       const { error } = await supabase.from("teachers").insert([payloadSupabase]);
       if (error) {
-        console.error("Erreur d'insertion Supabase Teachers :", error.message, error.details);
-      } else {
-        console.log("Enseignant enregistré avec succès dans Supabase !");
+        console.error("Erreur d'insertion Supabase Teachers :", error.message);
       }
     }
 
@@ -167,8 +161,8 @@ export default function TeachersPage() {
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: "binary" });
+        const buffer = evt.target?.result as ArrayBuffer;
+        const wb = XLSX.read(buffer, { type: "array" });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const data = XLSX.utils.sheet_to_json(ws) as any[];
 
@@ -176,14 +170,20 @@ export default function TeachersPage() {
         const supabasePayloads: any[] = [];
 
         data.forEach((row) => {
-          if (row.Nom || row.Teacher || row.Enseignant) {
+          // Détection universelle des en-têtes Excel pour les profs
+          const rawName = row.Nom || row.NOM || row.Teacher || row.TEACHER || row.Enseignant || row.ENSEIGNANT || row.Prof || row.PROF || row.Professeur || row.PROFESSEUR || row["Nom & Prénoms"] || row["Nom et Prenoms"];
+          const rawSubject = row.Discipline || row.DISCIPLINE || row.Matiere || row.Matière || row.MATIERE || row.Subject || row.SUBJECT || "MATHS";
+          const rawHours = row.Heures || row.HEURES || row.Volume || row.VOLUME || row.Hours || row.HOURS || 18;
+
+          if (rawName) {
             const id = crypto.randomUUID();
-            const subj = String(row.Discipline || row.Matiere || row.Subject || "MATHS").trim().toUpperCase();
-            const hours = Number(row.Heures || row.Volume || row.Hours) || 18;
+            const profName = String(rawName).trim();
+            const subj = String(rawSubject).trim().toUpperCase();
+            const hours = Number(rawHours) || 18;
 
             importedTeachers.push({
               id,
-              name: String(row.Nom || row.Teacher || row.Enseignant).trim(),
+              name: profName,
               subject: subj,
               weekly_hours: hours,
               unavailabilities: {},
@@ -191,14 +191,17 @@ export default function TeachersPage() {
 
             supabasePayloads.push({
               id,
-              name: String(row.Nom || row.Teacher || row.Enseignant).trim(),
+              name: profName,
               subjects: [subj],
               max_hours_per_week: hours,
             });
           }
         });
 
-        if (importedTeachers.length === 0) return;
+        if (importedTeachers.length === 0) {
+          alert("Aucun enseignant trouvé dans le fichier Excel. Vérifiez vos colonnes (ex: Nom, Discipline, Heures).");
+          return;
+        }
 
         const merged = [...teachers, ...importedTeachers];
         setTeachers(merged);
@@ -207,15 +210,20 @@ export default function TeachersPage() {
 
         if (supabase) {
           const { error } = await supabase.from("teachers").insert(supabasePayloads);
-          if (error) console.error("Erreur Import Excel Teachers :", error.message);
+          if (error) {
+            console.error("Erreur Import Excel Teachers Supabase :", error.message);
+          } else {
+            console.log("Enseignants importés avec succès dans Supabase !");
+          }
         }
 
         setInsertMode("manual");
       } catch (err) {
-        console.error(err);
+        console.error("Erreur lecture Excel Enseignants :", err);
       }
     };
-    reader.readAsBinaryString(file);
+
+    reader.readAsArrayBuffer(file);
   };
 
   const handleDeleteTeacher = async (id: string) => {
@@ -227,8 +235,7 @@ export default function TeachersPage() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 
     if (supabase) {
-      const { error } = await supabase.from("teachers").delete().eq("id", id);
-      if (error) console.error("Erreur suppression Supabase :", error.message);
+      await supabase.from("teachers").delete().eq("id", id);
     }
   };
 
@@ -242,8 +249,7 @@ export default function TeachersPage() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
 
     if (supabase) {
-      const { error } = await supabase.from("teachers").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-      if (error) console.error("Erreur réinitialisation Supabase :", error.message);
+      await supabase.from("teachers").delete().neq("id", "00000000-0000-0000-0000-000000000000");
     }
   };
 
