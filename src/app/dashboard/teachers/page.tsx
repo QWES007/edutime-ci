@@ -74,26 +74,34 @@ export default function TeachersPage() {
             .order("name", { ascending: true });
 
           if (!selectError && remoteTeachers && remoteTeachers.length > 0) {
-            setTeachers(remoteTeachers);
-            setSelectedTeacherId(remoteTeachers[0].id);
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(remoteTeachers));
+            const mapped = remoteTeachers.map((t: any) => ({
+              id: t.id,
+              name: t.name,
+              subject: Array.isArray(t.subjects) ? t.subjects.join(", ") : (t.subject || "MATHS"),
+              weekly_hours: t.max_hours_per_week || t.weekly_hours || 18,
+              unavailabilities: t.unavailabilities || {},
+            }));
+
+            setTeachers(mapped);
+            setSelectedTeacherId(mapped[0].id);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(mapped));
             return;
           }
 
           if (localTeachers.length > 0 && (!remoteTeachers || remoteTeachers.length === 0)) {
+            // Uniquement les colonnes reelles de Supabase : id, name, subjects, max_hours_per_week
             const formattedTeachers = localTeachers.map((t) => ({
               id: t.id && t.id.length === 36 ? t.id : crypto.randomUUID(),
               name: t.name,
-              subject: t.subject,
-              weekly_hours: Number(t.weekly_hours) || 18,
-              unavailabilities: t.unavailabilities || {},
+              subjects: [t.subject],
+              max_hours_per_week: Number(t.weekly_hours) || 18,
             }));
 
             const { error: insertError } = await supabase.from("teachers").insert(formattedTeachers);
             if (!insertError) {
-              setTeachers(formattedTeachers);
-              setSelectedTeacherId(formattedTeachers[0].id);
-              localStorage.setItem(STORAGE_KEY, JSON.stringify(formattedTeachers));
+              setTeachers(localTeachers);
+              setSelectedTeacherId(localTeachers[0].id);
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(localTeachers));
               return;
             } else {
               console.error("Erreur Synchro Supabase Teachers :", insertError.message);
@@ -125,20 +133,18 @@ export default function TeachersPage() {
       unavailabilities: {},
     };
 
-    // Mettre à jour le LocalStorage et l'état
     const updated = [...teachers, newTeacherState];
     setTeachers(updated);
     setSelectedTeacherId(newTeacherId);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 
-    // Insertion Supabase propre
     if (supabase) {
+      // Uniquement les champs réels de ta table teachers
       const payloadSupabase = {
         id: newTeacherId,
         name: name.trim(),
-        subject: subject.toUpperCase().trim(),
-        weekly_hours: Number(weeklyHours),
-        unavailabilities: {},
+        subjects: [subject.toUpperCase().trim()],
+        max_hours_per_week: Number(weeklyHours),
       };
 
       const { error } = await supabase.from("teachers").insert([payloadSupabase]);
@@ -166,15 +172,31 @@ export default function TeachersPage() {
         const ws = wb.Sheets[wb.SheetNames[0]];
         const data = XLSX.utils.sheet_to_json(ws) as any[];
 
-        const importedTeachers: Teacher[] = data
-          .filter((row) => row.Nom || row.Teacher || row.Enseignant)
-          .map((row) => ({
-            id: crypto.randomUUID(),
-            name: String(row.Nom || row.Teacher || row.Enseignant).trim(),
-            subject: String(row.Discipline || row.Matiere || row.Subject || "MATHS").trim().toUpperCase(),
-            weekly_hours: Number(row.Heures || row.Volume || row.Hours) || 18,
-            unavailabilities: {},
-          }));
+        const importedTeachers: Teacher[] = [];
+        const supabasePayloads: any[] = [];
+
+        data.forEach((row) => {
+          if (row.Nom || row.Teacher || row.Enseignant) {
+            const id = crypto.randomUUID();
+            const subj = String(row.Discipline || row.Matiere || row.Subject || "MATHS").trim().toUpperCase();
+            const hours = Number(row.Heures || row.Volume || row.Hours) || 18;
+
+            importedTeachers.push({
+              id,
+              name: String(row.Nom || row.Teacher || row.Enseignant).trim(),
+              subject: subj,
+              weekly_hours: hours,
+              unavailabilities: {},
+            });
+
+            supabasePayloads.push({
+              id,
+              name: String(row.Nom || row.Teacher || row.Enseignant).trim(),
+              subjects: [subj],
+              max_hours_per_week: hours,
+            });
+          }
+        });
 
         if (importedTeachers.length === 0) return;
 
@@ -184,10 +206,8 @@ export default function TeachersPage() {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
 
         if (supabase) {
-          const { error } = await supabase.from("teachers").insert(importedTeachers);
-          if (error) {
-            console.error("Erreur Import Excel Supabase Teachers :", error.message);
-          }
+          const { error } = await supabase.from("teachers").insert(supabasePayloads);
+          if (error) console.error("Erreur Import Excel Teachers :", error.message);
         }
 
         setInsertMode("manual");
@@ -251,16 +271,6 @@ export default function TeachersPage() {
 
     setTeachers(updatedTeachers);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedTeachers));
-
-    if (supabase) {
-      const selected = updatedTeachers.find((t) => t.id === selectedTeacherId);
-      const { error } = await supabase
-        .from("teachers")
-        .update({ unavailabilities: selected?.unavailabilities || {} })
-        .eq("id", selectedTeacherId);
-
-      if (error) console.error("Erreur mise à jour créneaux Supabase :", error.message);
-    }
   };
 
   const selectedTeacher = teachers.find((t) => t.id === selectedTeacherId);

@@ -72,13 +72,12 @@ export default function ClassesPage() {
           const { data: remoteClasses, error: selectError } = await supabase.from("classgroups").select("*");
 
           if (!selectError && remoteClasses && remoteClasses.length > 0) {
-            // Mapping Supabase -> State Frontend
             const mapped = remoteClasses.map((item: any) => ({
               id: item.id,
               name: item.name,
               level: item.level,
-              studentCount: item.student_count || item.studentCount || 40,
-              subjectHours: item.subject_hours || item.subjectHours || DEFAULT_MENA_HOURS["6ème"],
+              studentCount: item.student_count || 40,
+              subjectHours: item.subject_hours || DEFAULT_MENA_HOURS[item.level] || DEFAULT_MENA_HOURS["6ème"],
             }));
 
             setClasses(mapped);
@@ -88,15 +87,13 @@ export default function ClassesPage() {
           }
 
           if (localClasses.length > 0 && (!remoteClasses || remoteClasses.length === 0)) {
-            // On gère les deux formats pour être 100% compatible avec la table Supabase
+            // Alignement strict sur les colonnes Supabase: student_count et subject_hours
             const formattedClasses = localClasses.map((c) => ({
               id: c.id && c.id.length === 36 ? c.id : crypto.randomUUID(),
               name: c.name,
               level: c.level || "6ème",
               student_count: Number(c.studentCount) || 40,
-              studentCount: Number(c.studentCount) || 40,
               subject_hours: c.subjectHours || DEFAULT_MENA_HOURS["6ème"],
-              subjectHours: c.subjectHours || DEFAULT_MENA_HOURS["6ème"],
             }));
 
             const { error: insertError } = await supabase.from("classgroups").insert(formattedClasses);
@@ -159,15 +156,13 @@ export default function ClassesPage() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 
     if (supabase) {
-      // Envoie la compatibilité camelCase et snake_case pour Supabase
+      // Uniquement les colonnes qui existent sur Supabase : id, name, level, student_count, subject_hours
       const payload = {
         id: newClassId,
         level,
         name: name.trim(),
         student_count: Number(studentCount),
-        studentCount: Number(studentCount),
         subject_hours: activeSubjectHours,
-        subjectHours: activeSubjectHours,
       };
 
       const { error } = await supabase.from("classgroups").insert([payload]);
@@ -222,9 +217,7 @@ export default function ClassesPage() {
               name: className,
               level: classLevel,
               student_count: isNaN(count) ? 40 : count,
-              studentCount: isNaN(count) ? 40 : count,
               subject_hours: hours,
-              subjectHours: hours,
             });
           }
         });
