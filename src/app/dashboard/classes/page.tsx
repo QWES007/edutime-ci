@@ -72,27 +72,41 @@ export default function ClassesPage() {
           const { data: remoteClasses, error: selectError } = await supabase.from("classgroups").select("*");
 
           if (!selectError && remoteClasses && remoteClasses.length > 0) {
-            setClasses(remoteClasses);
-            setSelectedClassId(remoteClasses[0].id);
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(remoteClasses));
+            // Mapping Supabase -> State Frontend
+            const mapped = remoteClasses.map((item: any) => ({
+              id: item.id,
+              name: item.name,
+              level: item.level,
+              studentCount: item.student_count || item.studentCount || 40,
+              subjectHours: item.subject_hours || item.subjectHours || DEFAULT_MENA_HOURS["6ème"],
+            }));
+
+            setClasses(mapped);
+            setSelectedClassId(mapped[0].id);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(mapped));
             return;
           }
 
           if (localClasses.length > 0 && (!remoteClasses || remoteClasses.length === 0)) {
+            // On gère les deux formats pour être 100% compatible avec la table Supabase
             const formattedClasses = localClasses.map((c) => ({
               id: c.id && c.id.length === 36 ? c.id : crypto.randomUUID(),
               name: c.name,
               level: c.level || "6ème",
+              student_count: Number(c.studentCount) || 40,
               studentCount: Number(c.studentCount) || 40,
+              subject_hours: c.subjectHours || DEFAULT_MENA_HOURS["6ème"],
               subjectHours: c.subjectHours || DEFAULT_MENA_HOURS["6ème"],
             }));
 
             const { error: insertError } = await supabase.from("classgroups").insert(formattedClasses);
             if (!insertError) {
-              setClasses(formattedClasses);
-              setSelectedClassId(formattedClasses[0].id);
-              localStorage.setItem(STORAGE_KEY, JSON.stringify(formattedClasses));
+              setClasses(localClasses);
+              setSelectedClassId(localClasses[0].id);
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(localClasses));
               return;
+            } else {
+              console.error("Erreur Synchro Supabase Classgroups :", insertError.message);
             }
           }
         } catch (err) {
@@ -129,8 +143,10 @@ export default function ClassesPage() {
       if (hrs > 0) activeSubjectHours[sub] = hrs;
     });
 
+    const newClassId = crypto.randomUUID();
+
     const newClass: ClassGroup = {
-      id: crypto.randomUUID(),
+      id: newClassId,
       level,
       name,
       studentCount: Number(studentCount),
@@ -139,11 +155,27 @@ export default function ClassesPage() {
 
     const updated = [newClass, ...classes];
     setClasses(updated);
-    setSelectedClassId(newClass.id);
+    setSelectedClassId(newClassId);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 
     if (supabase) {
-      await supabase.from("classgroups").insert([newClass]);
+      // Envoie la compatibilité camelCase et snake_case pour Supabase
+      const payload = {
+        id: newClassId,
+        level,
+        name: name.trim(),
+        student_count: Number(studentCount),
+        studentCount: Number(studentCount),
+        subject_hours: activeSubjectHours,
+        subjectHours: activeSubjectHours,
+      };
+
+      const { error } = await supabase.from("classgroups").insert([payload]);
+      if (error) {
+        console.error("Erreur d'insertion Supabase Classgroups :", error.message, error.details);
+      } else {
+        console.log("Classe enregistrée avec succès dans Supabase !");
+      }
     }
   };
 
@@ -159,6 +191,7 @@ export default function ClassesPage() {
         const worksheet = workbook.Sheets[workbook.SheetNames[0]];
         const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1 });
         const newClasses: ClassGroup[] = [];
+        const supabasePayloads: any[] = [];
 
         jsonData.forEach((row: any, index: number) => {
           if (index === 0 || !row || row.length === 0) return;
@@ -173,12 +206,25 @@ export default function ClassesPage() {
               classLevel = matchedLevel || "6ème";
             }
 
+            const classId = crypto.randomUUID();
+            const hours = DEFAULT_MENA_HOURS[classLevel] || DEFAULT_MENA_HOURS["6ème"];
+
             newClasses.push({
-              id: crypto.randomUUID(),
+              id: classId,
               name: className,
               level: classLevel,
               studentCount: isNaN(count) ? 40 : count,
-              subjectHours: DEFAULT_MENA_HOURS[classLevel] || DEFAULT_MENA_HOURS["6ème"],
+              subjectHours: hours,
+            });
+
+            supabasePayloads.push({
+              id: classId,
+              name: className,
+              level: classLevel,
+              student_count: isNaN(count) ? 40 : count,
+              studentCount: isNaN(count) ? 40 : count,
+              subject_hours: hours,
+              subjectHours: hours,
             });
           }
         });
@@ -190,7 +236,8 @@ export default function ClassesPage() {
           localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
 
           if (supabase) {
-            await supabase.from("classgroups").insert(newClasses);
+            const { error } = await supabase.from("classgroups").insert(supabasePayloads);
+            if (error) console.error("Erreur Import Excel Classgroups :", error.message);
           }
 
           setEntryMode("manual");
@@ -213,7 +260,8 @@ export default function ClassesPage() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
 
     if (supabase) {
-      await supabase.from("classgroups").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      const { error } = await supabase.from("classgroups").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      if (error) console.error("Erreur réinitialisation Supabase :", error.message);
     }
   };
 

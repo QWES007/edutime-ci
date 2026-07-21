@@ -95,6 +95,8 @@ export default function TeachersPage() {
               setSelectedTeacherId(formattedTeachers[0].id);
               localStorage.setItem(STORAGE_KEY, JSON.stringify(formattedTeachers));
               return;
+            } else {
+              console.error("Erreur Synchro Supabase Teachers :", insertError.message);
             }
           }
         } catch (err) {
@@ -113,21 +115,38 @@ export default function TeachersPage() {
     e.preventDefault();
     if (!name || !subject) return;
 
-    const newTeacher: Teacher = {
-      id: crypto.randomUUID(),
-      name,
-      subject: subject.toUpperCase(),
+    const newTeacherId = crypto.randomUUID();
+
+    const newTeacherState: Teacher = {
+      id: newTeacherId,
+      name: name.trim(),
+      subject: subject.toUpperCase().trim(),
       weekly_hours: Number(weeklyHours),
       unavailabilities: {},
     };
 
-    const updated = [...teachers, newTeacher];
+    // Mettre à jour le LocalStorage et l'état
+    const updated = [...teachers, newTeacherState];
     setTeachers(updated);
-    setSelectedTeacherId(newTeacher.id);
+    setSelectedTeacherId(newTeacherId);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 
+    // Insertion Supabase propre
     if (supabase) {
-      await supabase.from("teachers").insert([newTeacher]);
+      const payloadSupabase = {
+        id: newTeacherId,
+        name: name.trim(),
+        subject: subject.toUpperCase().trim(),
+        weekly_hours: Number(weeklyHours),
+        unavailabilities: {},
+      };
+
+      const { error } = await supabase.from("teachers").insert([payloadSupabase]);
+      if (error) {
+        console.error("Erreur d'insertion Supabase Teachers :", error.message, error.details);
+      } else {
+        console.log("Enseignant enregistré avec succès dans Supabase !");
+      }
     }
 
     setName("");
@@ -165,7 +184,10 @@ export default function TeachersPage() {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
 
         if (supabase) {
-          await supabase.from("teachers").insert(importedTeachers);
+          const { error } = await supabase.from("teachers").insert(importedTeachers);
+          if (error) {
+            console.error("Erreur Import Excel Supabase Teachers :", error.message);
+          }
         }
 
         setInsertMode("manual");
@@ -185,7 +207,8 @@ export default function TeachersPage() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 
     if (supabase) {
-      await supabase.from("teachers").delete().eq("id", id);
+      const { error } = await supabase.from("teachers").delete().eq("id", id);
+      if (error) console.error("Erreur suppression Supabase :", error.message);
     }
   };
 
@@ -199,7 +222,8 @@ export default function TeachersPage() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
 
     if (supabase) {
-      await supabase.from("teachers").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      const { error } = await supabase.from("teachers").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      if (error) console.error("Erreur réinitialisation Supabase :", error.message);
     }
   };
 
@@ -230,7 +254,12 @@ export default function TeachersPage() {
 
     if (supabase) {
       const selected = updatedTeachers.find((t) => t.id === selectedTeacherId);
-      await supabase.from("teachers").update({ unavailabilities: selected?.unavailabilities }).eq("id", selectedTeacherId);
+      const { error } = await supabase
+        .from("teachers")
+        .update({ unavailabilities: selected?.unavailabilities || {} })
+        .eq("id", selectedTeacherId);
+
+      if (error) console.error("Erreur mise à jour créneaux Supabase :", error.message);
     }
   };
 
@@ -314,6 +343,7 @@ export default function TeachersPage() {
                       value={name} 
                       onChange={(e) => setName(e.target.value)}
                       className="mt-1 text-xs"
+                      required
                     />
                   </div>
 
@@ -325,6 +355,7 @@ export default function TeachersPage() {
                         value={subject} 
                         onChange={(e) => setSubject(e.target.value)}
                         className="mt-1 text-xs"
+                        required
                       />
                     </div>
                     <div>
@@ -334,11 +365,12 @@ export default function TeachersPage() {
                         value={weeklyHours} 
                         onChange={(e) => setWeeklyHours(Number(e.target.value))}
                         className="mt-1 text-xs"
+                        required
                       />
                     </div>
                   </div>
 
-                  <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs h-9">
+                  <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs h-9 cursor-pointer">
                     Enregistrer l&apos;enseignant
                   </Button>
                 </form>
