@@ -137,7 +137,7 @@ export default function DashboardPage() {
             <p className="text-xs text-slate-300 leading-relaxed">
               Vos données sont bien centralisées. Vous pouvez lancer le moteur de génération pour attribuer automatiquement les cours selon les volumes horaires et les contraintes.
             </p>
-            <Link href="/dashboard/generator">
+            <Link href="/dashboard/schedule">
               <Button className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs h-10 cursor-pointer">
                 Accéder au moteur de génération
               </Button>
