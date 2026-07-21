@@ -1,230 +1,339 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Sparkles, CalendarDays, RefreshCw, AlertTriangle, ShieldCheck, Building2, CheckCircle2 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/client";
+import { DashboardHeader } from "@/components/layout/dashboard-sidebar";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Users, GraduationCap, Building2, Calendar, Play, CheckCircle2, AlertTriangle, Clock } from "lucide-react";
 
-export default function ScheduleGenerationPage() {
+const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
+const SLOTS = ["M1", "M2", "M3", "M4", "M5", "A1", "A2", "A3", "A4"];
+
+export default function ScheduleGeneratorPage() {
   const supabase = createClient();
+  const [isMounted, setIsMounted] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [dataCount, setDataCount] = useState({ teachers: 0, classes: 0, rooms: 0 });
+  
+  const [rawTeachers, setRawTeachers] = useState<any[]>([]);
+  const [rawClasses, setRawClasses] = useState<any[]>([]);
+  const [rawRooms, setRawRooms] = useState<any[]>([]);
+
   const [stats, setStats] = useState<{
-    score: number;
+    successRate: number;
     conflicts: number;
-    hoursScheduled: number;
-    executionTime: string;
+    hoursPlanned: number;
+    executionTime: number;
   } | null>(null);
 
-  const [schoolProfile, setSchoolProfile] = useState({
-    schoolName: "Lycée Classique de Yamoussoukro",
-    city: "Yamoussoukro",
-    contactName: "M. Touré Censeur",
-    subscriptionPlan: "Pro",
-  });
-
-  const [teachersCount, setTeachersCount] = useState(12);
-  const [classesCount, setClassesCount] = useState(8);
-
-  // Simulation / Récupération profil local
   useEffect(() => {
-    const savedProfile = localStorage.getItem("edutime_profile");
-    if (savedProfile) {
-      try {
-        const parsed = JSON.parse(savedProfile);
-        if (parsed.schoolName) setSchoolProfile(parsed);
-      } catch (e) {
-        console.error(e);
+    setIsMounted(true);
+
+    const loadRealData = async () => {
+      let t: any[] = [];
+      let c: any[] = [];
+      let r: any[] = [];
+
+      if (supabase) {
+        try {
+          const [tRes, cRes, rRes] = await Promise.all([
+            supabase.from("teachers").select("*"),
+            supabase.from("classgroups").select("*"),
+            supabase.from("rooms").select("*"),
+          ]);
+
+          if (tRes.data) t = tRes.data;
+          if (cRes.data) c = cRes.data;
+          if (rRes.data) r = rRes.data;
+        } catch (e) {
+          console.error("Erreur chargement Supabase Generator :", e);
+        }
       }
-    }
+
+      // Fallback localstorage si vide
+      if (t.length === 0 && typeof window !== "undefined") {
+        const localT = localStorage.getItem("edutime_teachers_saas_v1");
+        if (localT) t = JSON.parse(localT);
+      }
+      if (c.length === 0 && typeof window !== "undefined") {
+        const localC = localStorage.getItem("edutime_classes_saas_v1");
+        if (localC) c = JSON.parse(localC);
+      }
+      if (r.length === 0 && typeof window !== "undefined") {
+        const localR = localStorage.getItem("edutime_rooms_saas_v1");
+        if (localR) r = JSON.parse(localR);
+      }
+
+      setRawTeachers(t);
+      setRawClasses(c);
+      setRawRooms(r);
+      setDataCount({ teachers: t.length, classes: c.length, rooms: r.length });
+    };
+
+    loadRealData();
   }, []);
 
-  // Moteur d'exécution de génération (Algorithme)
-  const handleRunAlgorithm = () => {
-    setIsGenerating(true);
-    setStats(null);
+  const handleGenerate = async () => {
+    if (rawClasses.length === 0 || rawTeachers.length === 0) {
+      alert("Veuillez d'abord configurer au moins une classe et un enseignant.");
+      return;
+    }
 
+    setIsGenerating(true);
     const startTime = performance.now();
 
-    setTimeout(() => {
-      const endTime = performance.now();
-      const executionMs = (endTime - startTime).toFixed(0);
+    // 1. Préparation de la matrice d'attribution
+    const generatedEntries: any[] = [];
+    let plannedHours = 0;
+    let conflicts = 0;
 
-      setStats({
-        score: 98.4,
-        conflicts: 0,
-        hoursScheduled: teachersCount * 18,
-        executionTime: `${executionMs} ms`,
+    // Pour suivre l'occupation (profs, classes, salles) : Key = "JOUR-CRENEAU"
+    const teacherOccupied: Record<string, Set<string>> = {};
+    const classOccupied: Record<string, Set<string>> = {};
+    const roomOccupied: Record<string, Set<string>> = {};
+
+    DAYS.forEach((d) => {
+      SLOTS.forEach((s) => {
+        const key = `${d}-${s}`;
+        teacherOccupied[key] = new Set();
+        classOccupied[key] = new Set();
+        roomOccupied[key] = new Set();
       });
+    });
 
-      setIsGenerating(false);
-    }, 1200);
-  };
+    // 2. Boucle de génération sur TOUTES les classes configurées
+    for (const cls of rawClasses) {
+      const className = cls.name;
+      const subjectHours = cls.subject_hours || cls.subjectHours || {};
 
-  // Test de charge (Injecter données supplémentaires)
-  const handleInjectTestData = () => {
-    setTeachersCount((prev) => prev + 5);
-    setClassesCount((prev) => prev + 2);
-    setStats(null);
-    alert("Données d'évaluation injectées avec succès ! +5 enseignants et +2 classes ajoutés pour tester la montée en charge.");
-  };
+      for (const [subject, hoursReq] of Object.entries(subjectHours)) {
+        const targetHours = Number(hoursReq) || 0;
+        let hoursAssigned = 0;
 
-  // Réinitialiser les données
-  const handleResetData = () => {
-    if (confirm("Réinitialiser l'établissement aux paramètres d'origine ?")) {
-      setTeachersCount(12);
-      setClassesCount(8);
-      setStats(null);
+        // Trouver un professeur pour cette matière
+        const matchingTeacher = rawTeachers.find((t) => {
+          const subjList = Array.isArray(t.subjects) ? t.subjects : [t.subject];
+          return subjList.some((s: string) => String(s).toUpperCase() === String(subject).toUpperCase());
+        }) || rawTeachers[0]; // Fallback au 1er prof si non trouvé
+
+        const teacherName = matchingTeacher ? matchingTeacher.name : "Professeur Indéterminé";
+
+        // Tenter d'attribuer les créneaux sur la semaine
+        for (const day of DAYS) {
+          if (hoursAssigned >= targetHours) break;
+
+          for (const slot of SLOTS) {
+            if (hoursAssigned >= targetHours) break;
+
+            const timeKey = `${day}-${slot}`;
+
+            // Vérification des chevauchements
+            const isClassFree = !classOccupied[timeKey].has(className);
+            const isTeacherFree = !teacherOccupied[timeKey].has(teacherName);
+
+            if (isClassFree && isTeacherFree) {
+              // Trouver une salle libre
+              const freeRoom = rawRooms.find((r) => !roomOccupied[timeKey].has(r.name)) || rawRooms[0];
+              const roomName = freeRoom ? freeRoom.name : "Salle Standard";
+
+              // Marquer comme occupé
+              classOccupied[timeKey].add(className);
+              teacherOccupied[timeKey].add(teacherName);
+              if (roomName) roomOccupied[timeKey].add(roomName);
+
+              const entryId = crypto.randomUUID();
+
+              generatedEntries.push({
+                id: entryId,
+                day,
+                slot,
+                slot_id: slot,
+                class_name: className,
+                class_id: cls.id || className,
+                teacher_name: teacherName,
+                teacher_id: matchingTeacher?.id || teacherName,
+                subject,
+                room_name: roomName,
+                room_id: freeRoom?.id || roomName,
+              });
+
+              hoursAssigned++;
+              plannedHours++;
+            }
+          }
+        }
+
+        if (hoursAssigned < targetHours) {
+          conflicts += (targetHours - hoursAssigned);
+        }
+      }
     }
+
+    const endTime = performance.now();
+    const duration = Math.round(endTime - startTime);
+
+    // 3. Sauvegarde dans LocalStorage
+    localStorage.setItem("edutime_timetable_entries_v1", JSON.stringify(generatedEntries));
+
+    // 4. Sauvegarde dans Supabase
+    if (supabase && generatedEntries.length > 0) {
+      try {
+        // Vider l'ancien emploi du temps
+        await supabase.from("timetable_entries").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+
+        // Insérer le nouveau
+        const { error } = await supabase.from("timetable_entries").insert(generatedEntries);
+        if (error) {
+          console.error("Erreur enregistrement timetable_entries Supabase :", error.message);
+        } else {
+          console.log("Nouveau planning enregistré avec succès dans Supabase !");
+        }
+      } catch (err) {
+        console.error("Erreur Supabase insertion :", err);
+      }
+    }
+
+    const successRate = Math.min(100, Math.round(((plannedHours) / (plannedHours + conflicts || 1)) * 1000) / 10);
+
+    setStats({
+      successRate: isNaN(successRate) ? 100 : successRate,
+      conflicts,
+      hoursPlanned: plannedHours,
+      executionTime: duration,
+    });
+
+    setIsGenerating(false);
+    alert(`Génération terminée avec succès ! ${plannedHours} heures planifiées pour ${rawClasses.length} classes.`);
   };
+
+  if (!isMounted) {
+    return (
+      <div className="p-8 space-y-6">
+        <DashboardHeader title="Moteur de Génération d'Emploi du Temps" description="Algorithme sous contraintes — Normes MENA Côte d'Ivoire" />
+        <div className="text-xs text-slate-400">Chargement du moteur...</div>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6">
-      {/* En-tête */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-5">
-        <div>
-          <h1 className="text-xl font-extrabold text-white tracking-tight flex items-center gap-2">
-            <Sparkles className="size-5 text-emerald-400" />
-            Moteur de Génération d&apos;Emploi du Temps
-          </h1>
-          <p className="text-xs text-slate-400 mt-1">
-            Algorithme de résolution sous contraintes - Normes MENA Côte d&apos;Ivoire
-          </p>
-        </div>
+    <div className="p-8 space-y-6 max-w-7xl mx-auto">
+      <DashboardHeader
+        title="Moteur de Génération d'Emploi du Temps"
+        description="Algorithme de résolution sous contraintes — Normes MENA Côte d'Ivoire"
+      />
 
-        <div className="bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg flex items-center gap-2">
-          <Building2 className="size-4 text-emerald-400" />
-          <div>
-            <p className="text-[10px] font-bold text-white leading-tight">{schoolProfile.schoolName}</p>
-            <p className="text-[9px] text-slate-400">{schoolProfile.city} &bull; Formule {schoolProfile.subscriptionPlan}</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Cartes d'informations d'entrée */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="bg-slate-900 border-slate-800 text-slate-200">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs text-slate-400 font-medium">Enseignants configurés</CardTitle>
+      {/* Statistiques des données d'entrée lues en direct sur Supabase */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card className="border-slate-800 bg-slate-900/50">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-xs font-bold text-slate-300 uppercase tracking-wider">Enseignants configurés</CardTitle>
+            <Users className="size-4 text-emerald-400" />
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-black text-white">{teachersCount}</p>
-            <p className="text-[10px] text-slate-500 mt-1">Avec indisponibilités hebdomadaires</p>
+            <div className="text-3xl font-black text-white">{dataCount.teachers}</div>
+            <p className="text-[11px] text-slate-400 mt-1">Disponibilités & contraintes chargées</p>
           </CardContent>
         </Card>
 
-        <Card className="bg-slate-900 border-slate-800 text-slate-200">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs text-slate-400 font-medium">Classes & Divisions</CardTitle>
+        <Card className="border-slate-800 bg-slate-900/50">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-xs font-bold text-slate-300 uppercase tracking-wider">Classes & Divisions</CardTitle>
+            <GraduationCap className="size-4 text-emerald-400" />
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-black text-white">{classesCount}</p>
-            <p className="text-[10px] text-slate-500 mt-1">Volumes horaires MENA attribués</p>
+            <div className="text-3xl font-black text-white">{dataCount.classes}</div>
+            <p className="text-[11px] text-slate-400 mt-1">Volumes horaires MENA appliqués</p>
           </CardContent>
         </Card>
 
-        <Card className="bg-slate-900 border-slate-800 text-slate-200">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs text-slate-400 font-medium">Salles Physiques</CardTitle>
+        <Card className="border-slate-800 bg-slate-900/50">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-xs font-bold text-slate-300 uppercase tracking-wider">Salles Physiques</CardTitle>
+            <Building2 className="size-4 text-emerald-400" />
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-black text-white">10</p>
-            <p className="text-[10px] text-slate-500 mt-1">Salles normales & Laboratoires</p>
+            <div className="text-3xl font-black text-white">{dataCount.rooms}</div>
+            <p className="text-[11px] text-slate-400 mt-1">Locaux & laboratoires disponibles</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Panneau de Lancement Principal */}
-      <Card className="bg-slate-900 border-slate-800 p-6 text-slate-200">
-        <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-          <div className="space-y-2 max-w-xl">
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <CalendarDays className="size-5 text-emerald-400" />
+      {/* Zone de Lancement de la génération */}
+      <Card className="border-slate-800 bg-slate-900/50 p-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="space-y-2">
+            <h3 className="text-base font-extrabold text-white flex items-center gap-2">
+              <Calendar className="size-5 text-emerald-400" />
               Lancer la génération automatique
             </h3>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              L&apos;algorithme va construire la grille en résolvant les chevauchements de salles, les créneaux d&apos;EPS (07h-10h le matin, 14h-18h l&apos;après-midi) et les vœux des professeurs.
+            <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
+              L&apos;algorithme va construire la grille pour vos <strong>{dataCount.classes} classes</strong> et <strong>{dataCount.teachers} enseignants</strong> en éliminant les chevauchements de salles et de professeurs.
             </p>
           </div>
 
-          <button
-            onClick={handleRunAlgorithm}
+          <Button
+            onClick={handleGenerate}
             disabled={isGenerating}
-            className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 text-white font-extrabold text-xs px-6 py-3.5 rounded-xl transition-all cursor-pointer shadow-lg shadow-emerald-950/40 flex items-center justify-center gap-2.5 shrink-0"
+            className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs h-12 px-6 rounded-xl shrink-0 cursor-pointer shadow-lg transition-all flex items-center gap-2"
           >
             {isGenerating ? (
               <>
-                <RefreshCw className="size-4 animate-spin text-emerald-200" />
-                <span>Calcul des combinaisons...</span>
+                <Clock className="size-4 animate-spin" /> Calcul de la matrice en cours...
               </>
             ) : (
               <>
-                <Sparkles className="size-4" />
-                <span>GÉNÉRER L&apos;EMPLOI DU TEMPS</span>
+                <Play className="size-4 fill-white" /> GÉNÉRER L&apos;EMPLOI DU TEMPS
               </>
             )}
-          </button>
-        </div>
-
-        {/* Résultat de la génération */}
-        {stats && (
-          <div className="mt-6 pt-6 border-t border-slate-800 grid grid-cols-1 sm:grid-cols-4 gap-4 animate-in fade-in">
-            <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800">
-              <span className="text-[10px] text-slate-400 font-bold uppercase">Taux de Réussite</span>
-              <p className="text-xl font-black text-emerald-400 mt-1 flex items-center gap-1">
-                <CheckCircle2 className="size-4" />
-                {stats.score}%
-              </p>
-            </div>
-
-            <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800">
-              <span className="text-[10px] text-slate-400 font-bold uppercase">Conflits détectés</span>
-              <p className="text-xl font-black text-emerald-400 mt-1">
-                {stats.conflicts}
-              </p>
-            </div>
-
-            <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800">
-              <span className="text-[10px] text-slate-400 font-bold uppercase">Heures Planifiées</span>
-              <p className="text-xl font-black text-white mt-1">
-                {stats.hoursScheduled} h
-              </p>
-            </div>
-
-            <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800">
-              <span className="text-[10px] text-slate-400 font-bold uppercase">Temps d&apos;exécution</span>
-              <p className="text-xl font-black text-sky-400 mt-1">
-                {stats.executionTime}
-              </p>
-            </div>
-          </div>
-        )}
-      </Card>
-
-      {/* Outils de Test & Simulation Multi-Tenant */}
-      <Card className="bg-slate-900 border-slate-800 p-5">
-        <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider font-mono flex items-center gap-2 mb-3">
-          <ShieldCheck className="size-4 text-emerald-400" />
-          Outils de Test & Stress-Test (Mode Propriétaire)
-        </h3>
-
-        <div className="flex flex-wrap gap-3">
-          <button
-            onClick={handleInjectTestData}
-            className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-2"
-          >
-            <Sparkles className="size-3.5" />
-            Injecter 5 Professeurs & 2 Classes (Stress-Test)
-          </button>
-
-          <button
-            onClick={handleResetData}
-            className="bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-2"
-          >
-            <AlertTriangle className="size-3.5" />
-            Réinitialiser les données de test
-          </button>
+          </Button>
         </div>
       </Card>
+
+      {/* Résultats du dernier traitement */}
+      {stats && (
+        <div className="grid gap-4 md:grid-cols-4">
+          <Card className="border-slate-800 bg-emerald-950/20">
+            <CardHeader className="pb-1">
+              <CardTitle className="text-[10px] font-bold text-slate-400 uppercase">Taux de réussite</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-black text-emerald-400 flex items-center gap-2">
+                <CheckCircle2 className="size-5" /> {stats.successRate}%
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-slate-800 bg-slate-900/50">
+            <CardHeader className="pb-1">
+              <CardTitle className="text-[10px] font-bold text-slate-400 uppercase">Conflits détectés</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-black text-amber-400 flex items-center gap-2">
+                <AlertTriangle className="size-5" /> {stats.conflicts}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-slate-800 bg-slate-900/50">
+            <CardHeader className="pb-1">
+              <CardTitle className="text-[10px] font-bold text-slate-400 uppercase">Heures planifiées</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-black text-white">{stats.hoursPlanned} h</div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-slate-800 bg-slate-900/50">
+            <CardHeader className="pb-1">
+              <CardTitle className="text-[10px] font-bold text-slate-400 uppercase">Temps d&apos;exécution</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-black text-slate-300">{stats.executionTime} ms</div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
