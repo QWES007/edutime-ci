@@ -7,8 +7,121 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Users, GraduationCap, Building2, Calendar, Play, CheckCircle2, AlertTriangle, Clock } from "lucide-react";
 
-const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
-const SLOTS = ["M1", "M2", "M3", "M4", "M5", "A1", "A2", "A3", "A4"];
+// Types MENA
+type DayOfWeek = 'Lundi' | 'Mardi' | 'Mercredi' | 'Jeudi' | 'Vendredi' | 'Samedi';
+
+interface Teacher {
+  id: string;
+  name: string;
+  subjects: string[];
+  maxHoursPerWeek: number;
+  unavailabilities: string[];
+}
+
+interface Room {
+  id: string;
+  name: string;
+  type: string; // 'Standard' | 'Lab' | 'Sports'
+  capacity: number;
+}
+
+interface ClassGroup {
+  id: string;
+  name: string;
+  level: string;
+  studentCount: number;
+  subjectHours: Record<string, number>;
+  doubleVacation?: 'A' | 'B' | 'none';
+}
+
+interface AllocationRequest {
+  classGroupId: string;
+  subjectId: string;
+  teacherId: string;
+  blockSize: number;
+  actualHours?: number;
+}
+
+const DAYS: DayOfWeek[] = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
+const TIME_SLOTS = [
+  { id: "M1", period: "Matin" }, { id: "M2", period: "Matin" }, { id: "M3", period: "Matin" }, { id: "M4", period: "Matin" }, { id: "M5", period: "Matin" },
+  { id: "A1", period: "Après-midi" }, { id: "A2", period: "Après-midi" }, { id: "A3", period: "Après-midi" }, { id: "A4", period: "Après-midi" }, { id: "A5", period: "Après-midi" }
+];
+
+const SLOT_INDEX_MAP: Record<string, number> = {
+  M1: 0, M2: 1, M3: 2, M4: 3, M5: 4,
+  A1: 5, A2: 6, A3: 7, A4: 8, A5: 9
+};
+
+const isSvtPcFirstCycleLevel = (level: string) => ['6ème', '5ème', '4ème'].includes(level);
+const isSvtPc1h30 = (level: string, subId: string) => isSvtPcFirstCycleLevel(level) && ['svt', 'pc'].includes(subId.toLowerCase());
+
+function hasInvalidGaps(slots: string[]): boolean {
+  const morningIndices: number[] = [];
+  const afternoonIndices: number[] = [];
+
+  for (let i = 0; i < slots.length; i++) {
+    const idx = SLOT_INDEX_MAP[slots[i]];
+    if (idx !== undefined) {
+      if (idx <= 4) morningIndices.push(idx);
+      else afternoonIndices.push(idx);
+    }
+  }
+
+  if (morningIndices.length > 1) {
+    morningIndices.sort((a, b) => a - b);
+    let consecutiveEmpty = 0;
+    let maxConsecutiveEmpty = 0;
+    const minVal = morningIndices[0];
+    const maxVal = morningIndices[morningIndices.length - 1];
+    const presence = [false, false, false, false, false];
+    for (let i = 0; i < morningIndices.length; i++) presence[morningIndices[i]] = true;
+
+    for (let i = minVal; i <= maxVal; i++) {
+      if (!presence[i]) {
+        consecutiveEmpty++;
+        if (consecutiveEmpty > maxConsecutiveEmpty) maxConsecutiveEmpty = consecutiveEmpty;
+      } else consecutiveEmpty = 0;
+    }
+    if (maxConsecutiveEmpty >= 2) return true;
+  }
+
+  if (afternoonIndices.length > 1) {
+    afternoonIndices.sort((a, b) => a - b);
+    let consecutiveEmpty = 0;
+    let maxConsecutiveEmpty = 0;
+    const minVal = afternoonIndices[0];
+    const maxVal = afternoonIndices[afternoonIndices.length - 1];
+    const presence = [false, false, false, false, false, false, false, false, false, false];
+    for (let i = 0; i < afternoonIndices.length; i++) presence[afternoonIndices[i]] = true;
+
+    for (let i = minVal; i <= maxVal; i++) {
+      if (!presence[i]) {
+        consecutiveEmpty++;
+        if (consecutiveEmpty > maxConsecutiveEmpty) maxConsecutiveEmpty = consecutiveEmpty;
+      } else consecutiveEmpty = 0;
+    }
+    if (maxConsecutiveEmpty >= 2) return true;
+  }
+
+  return false;
+}
+
+function isSlotBlockedByDoubleVacation(doubleVacation: 'A' | 'B' | 'none' | undefined, day: DayOfWeek, slotId: string): boolean {
+  if (!doubleVacation || doubleVacation === 'none') return false;
+  const slot = TIME_SLOTS.find(s => s.id === slotId);
+  if (!slot) return false;
+
+  if (['Lundi', 'Mercredi', 'Vendredi'].includes(day)) {
+    if (doubleVacation === 'A') return slot.period === 'Après-midi';
+    if (doubleVacation === 'B') return slot.period === 'Matin';
+  }
+  if (['Mardi', 'Jeudi'].includes(day)) {
+    if (doubleVacation === 'A') return slot.period === 'Matin';
+    if (doubleVacation === 'B') return slot.period === 'Après-midi';
+  }
+  return false;
+}
 
 export default function ScheduleGeneratorPage() {
   const supabase = createClient();
@@ -16,9 +129,9 @@ export default function ScheduleGeneratorPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [dataCount, setDataCount] = useState({ teachers: 0, classes: 0, rooms: 0 });
 
-  const [rawTeachers, setRawTeachers] = useState<any[]>([]);
-  const [rawClasses, setRawClasses] = useState<any[]>([]);
-  const [rawRooms, setRawRooms] = useState<any[]>([]);
+  const [rawTeachers, setRawTeachers] = useState<Teacher[]>([]);
+  const [rawClasses, setRawClasses] = useState<ClassGroup[]>([]);
+  const [rawRooms, setRawRooms] = useState<Room[]>([]);
 
   const [stats, setStats] = useState<{
     successRate: number;
@@ -31,9 +144,9 @@ export default function ScheduleGeneratorPage() {
     setIsMounted(true);
 
     const loadRealData = async () => {
-      let t: any[] = [];
-      let c: any[] = [];
-      let r: any[] = [];
+      let t: Teacher[] = [];
+      let c: ClassGroup[] = [];
+      let r: Room[] = [];
 
       if (supabase) {
         try {
@@ -43,25 +156,38 @@ export default function ScheduleGeneratorPage() {
             supabase.from("rooms").select("*"),
           ]);
 
-          if (tRes.data) t = tRes.data;
-          if (cRes.data) c = cRes.data;
-          if (rRes.data) r = rRes.data;
-        } catch (e) {
-          console.error("Erreur chargement Supabase Generator :", e);
-        }
-      }
+          if (tRes.data) {
+            t = tRes.data.map((item: any) => ({
+              id: item.id,
+              name: item.name,
+              subjects: Array.isArray(item.subjects) ? item.subjects.map((s: string) => s.toLowerCase()) : [String(item.subject || "maths").toLowerCase()],
+              maxHoursPerWeek: Number(item.max_hours_per_week || item.weekly_hours || 18),
+              unavailabilities: Object.keys(item.unavailabilities || {}),
+            }));
+          }
 
-      if (t.length === 0 && typeof window !== "undefined") {
-        const localT = localStorage.getItem("edutime_teachers_saas_v1");
-        if (localT) t = JSON.parse(localT);
-      }
-      if (c.length === 0 && typeof window !== "undefined") {
-        const localC = localStorage.getItem("edutime_classes_saas_v1");
-        if (localC) c = JSON.parse(localC);
-      }
-      if (r.length === 0 && typeof window !== "undefined") {
-        const localR = localStorage.getItem("edutime_rooms_saas_v1");
-        if (localR) r = JSON.parse(localR);
+          if (cRes.data) {
+            c = cRes.data.map((item: any) => ({
+              id: item.id,
+              name: item.name,
+              level: item.level,
+              studentCount: Number(item.student_count || 40),
+              subjectHours: item.subject_hours || {},
+              doubleVacation: item.double_vacation || "none",
+            }));
+          }
+
+          if (rRes.data) {
+            r = rRes.data.map((item: any) => ({
+              id: item.id,
+              name: item.name,
+              type: String(item.type || "Standard").toLowerCase() === "laboratoire" ? "Lab" : String(item.type || "Standard").toLowerCase() === "sports" ? "Sports" : "Standard",
+              capacity: Number(item.capacity || 50),
+            }));
+          }
+        } catch (e) {
+          console.error("Erreur Supabase :", e);
+        }
       }
 
       setRawTeachers(t);
@@ -80,164 +206,298 @@ export default function ScheduleGeneratorPage() {
     }
 
     setIsGenerating(true);
-    const startTime = performance.now();
+    const startTimeMs = Date.now();
+    let conflictsSolved = 0;
 
-    const generatedEntries: any[] = [];
-    let plannedHours = 0;
-    let conflicts = 0;
+    const teacherSchedules: Record<string, Record<string, string>> = {};
+    const classSchedules: Record<string, Record<string, { subjectId: string; teacherId: string; roomId: string }>> = {};
+    const roomSchedules: Record<string, Record<string, string>> = {};
+    const teacherAssignedHours: Record<string, number> = {};
 
-    // Masques d'occupation pour éviter les doublons
-    const teacherSlotBusy = new Set<string>(); // "TeacherName-Day-Slot"
-    const classSlotBusy = new Set<string>();   // "ClassName-Day-Slot"
-    const roomSlotBusy = new Set<string>();    // "RoomName-Day-Slot"
+    rawTeachers.forEach(t => {
+      teacherSchedules[t.id] = {};
+      teacherAssignedHours[t.id] = 0;
+    });
+    rawClasses.forEach(c => { classSchedules[c.id] = {}; });
+    rawRooms.forEach(r => { roomSchedules[r.id] = {}; });
 
-    // Compteurs journaliers pour lisser la charge sur la semaine
-    const classSubjectDayHours: Record<string, number> = {}; // "ClassName-Subject-Day" -> nbHours
-    const teacherDayHours: Record<string, number> = {};       // "TeacherName-Day" -> nbHours
+    const classSubjectTeacherMap: Record<string, string> = {};
 
-    // 1. Préparation de la liste des cours à placer (Task Queue)
-    interface CourseTask {
-      className: string;
-      classId: string;
-      subject: string;
-      teacherName: string;
-      teacherId: string;
-    }
+    rawClasses.forEach(cg => {
+      Object.keys(cg.subjectHours).forEach(subId => {
+        const cleanSubId = subId.toLowerCase();
+        const eligibleTeachers = rawTeachers.filter(t => t.subjects.includes(cleanSubId));
 
-    const tasks: CourseTask[] = [];
-
-    rawClasses.forEach((cls) => {
-      const subjectHours = cls.subject_hours || cls.subjectHours || {};
-      Object.entries(subjectHours).forEach(([subj, hoursReq]) => {
-        const total = Number(hoursReq) || 0;
-
-        // Trouver le prof associé
-        const matchingTeacher = rawTeachers.find((t) => {
-          const subjList = Array.isArray(t.subjects) ? t.subjects : [t.subject];
-          return subjList.some((s: string) => String(s).toUpperCase() === String(subj).toUpperCase());
-        }) || rawTeachers[0];
-
-        const tName = matchingTeacher ? matchingTeacher.name : "Professeur Indéterminé";
-        const tId = matchingTeacher ? matchingTeacher.id : tName;
-
-        for (let i = 0; i < total; i++) {
-          tasks.push({
-            className: cls.name,
-            classId: cls.id || cls.name,
-            subject: subj,
-            teacherName: tName,
-            teacherId: tId,
+        if (eligibleTeachers.length > 0) {
+          eligibleTeachers.sort((a, b) => {
+            const aRemaining = a.maxHoursPerWeek - (teacherAssignedHours[a.id] || 0);
+            const bRemaining = b.maxHoursPerWeek - (teacherAssignedHours[b.id] || 0);
+            return bRemaining - aRemaining;
           });
+          classSubjectTeacherMap[`${cg.id}_${cleanSubId}`] = eligibleTeachers[0].id;
+        } else if (rawTeachers.length > 0) {
+          classSubjectTeacherMap[`${cg.id}_${cleanSubId}`] = rawTeachers[0].id;
         }
       });
     });
 
-    // 2. Mélange / Tri intelligent : traiter les matières à fort volume en premier
-    tasks.sort((a, b) => a.subject.localeCompare(b.subject));
+    const requests: AllocationRequest[] = [];
 
-    // 3. Placement équilibré
-    for (const task of tasks) {
-      let placed = false;
+    rawClasses.forEach(cg => {
+      Object.entries(cg.subjectHours).forEach(([subId, totalHours]) => {
+        const cleanSubId = subId.toLowerCase();
+        const teacherId = classSubjectTeacherMap[`${cg.id}_${cleanSubId}`];
+        if (!teacherId) return;
 
-      // On parcourt les jours et les créneaux pour trouver le meilleur créneau équilibré
-      for (const day of DAYS) {
-        if (placed) break;
+        if (isSvtPc1h30(cg.level, cleanSubId)) {
+          requests.push({ classGroupId: cg.id, subjectId: cleanSubId, teacherId, blockSize: 2, actualHours: 1.5 });
+          return;
+        }
 
-        const csKey = `${task.className}-${task.subject}-${day}`;
-        const currentCSHours = classSubjectDayHours[csKey] || 0;
+        let remainingHours = Number(totalHours) || 0;
+        const isBlockPreferred = ['maths', 'pc', 'fr', 'svt', 'philo', 'eps'].includes(cleanSubId);
 
-        // Règle de lissage : Max 2h d'une même matière par jour pour une classe
-        if (currentCSHours >= 2) continue;
-
-        const tdKey = `${task.teacherName}-${day}`;
-        const currentTDHours = teacherDayHours[tdKey] || 0;
-
-        // Règle de lissage : Max 6h de cours par jour pour un prof
-        if (currentTDHours >= 6) continue;
-
-        for (const slot of SLOTS) {
-          const classKey = `${task.className}-${day}-${slot}`;
-          const teacherKey = `${task.teacherName}-${day}-${slot}`;
-
-          if (classSlotBusy.has(classKey) || teacherSlotBusy.has(teacherKey)) {
-            continue; // Déjà occupé
+        if (isBlockPreferred || remainingHours > 2) {
+          while (remainingHours >= 2) {
+            requests.push({ classGroupId: cg.id, subjectId: cleanSubId, teacherId, blockSize: 2 });
+            remainingHours -= 2;
           }
+        }
+        while (remainingHours > 0) {
+          requests.push({ classGroupId: cg.id, subjectId: cleanSubId, teacherId, blockSize: 1 });
+          remainingHours -= 1;
+        }
+      });
+    });
 
-          // Trouver une salle disponible
-          const freeRoom = rawRooms.find((r) => !roomSlotBusy.has(`${r.name}-${day}-${slot}`)) || rawRooms[0];
-          const roomName = freeRoom ? freeRoom.name : "Salle Standard";
-          const roomKey = `${roomName}-${day}-${slot}`;
+    const getLevelPriority = (level: string): number => {
+      if (level.startsWith('Tle')) return 4;
+      if (level.startsWith('1ère')) return 3;
+      if (level === '3ème') return 2.5;
+      if (level.startsWith('2nde')) return 2;
+      return 1;
+    };
 
-          // Validation du créneau
-          classSlotBusy.add(classKey);
-          teacherSlotBusy.add(teacherKey);
-          if (roomName) roomSlotBusy.add(roomKey);
+    requests.sort((a, b) => {
+      const classA = rawClasses.find(c => c.id === a.classGroupId)!;
+      const classB = rawClasses.find(c => c.id === b.classGroupId)!;
+      const prioA = getLevelPriority(classA?.level || '');
+      const prioB = getLevelPriority(classB?.level || '');
+      if (prioA !== prioB) return prioB - prioA;
+      return b.blockSize - a.blockSize;
+    });
 
-          classSubjectDayHours[csKey] = currentCSHours + 1;
-          teacherDayHours[tdKey] = currentTDHours + 1;
+    const isAfternoonRestPeriod = (day: DayOfWeek, slotId: string): boolean => {
+      if (day === 'Mercredi') {
+        const slotIndex = TIME_SLOTS.findIndex(s => s.id === slotId);
+        return slotIndex >= 5;
+      }
+      return false;
+    };
 
-          generatedEntries.push({
-            id: crypto.randomUUID(),
-            day,
-            slot,
-            slot_id: slot,
-            class_name: task.className,
-            class_id: task.classId,
-            teacher_name: task.teacherName,
-            teacher_id: task.teacherId,
-            subject: task.subject,
-            room_name: roomName,
-            room_id: freeRoom?.id || roomName,
-          });
+    const getEligibleRooms = (subId: string, neededCapacity: number): Room[] => {
+      let filtered = rawRooms;
+      if (subId === 'eps') {
+        filtered = rawRooms.filter(r => r.type === 'Sports');
+      } else if (['pc', 'svt'].includes(subId)) {
+        const labs = rawRooms.filter(r => r.type === 'Lab' && r.capacity >= neededCapacity);
+        if (labs.length > 0) return labs;
+        filtered = rawRooms.filter(r => r.type === 'Standard');
+      } else {
+        filtered = rawRooms.filter(r => r.type === 'Standard');
+      }
+      if (filtered.length === 0) filtered = rawRooms;
+      return filtered.sort((a, b) => a.capacity - b.capacity);
+    };
 
-          plannedHours++;
-          placed = true;
-          break;
+    const entries: any[] = [];
+    const unplacedRequests: AllocationRequest[] = [];
+    let totalTries = 0;
+    const TRY_LIMIT = 5000;
+
+    for (let rIndex = 0; rIndex < requests.length; rIndex++) {
+      if (totalTries >= TRY_LIMIT) {
+        for (let j = rIndex; j < requests.length; j++) unplacedRequests.push(requests[j]);
+        break;
+      }
+
+      const req = requests[rIndex];
+      const classGroup = rawClasses.find(c => c.id === req.classGroupId)!;
+      const teacher = rawTeachers.find(t => t.id === req.teacherId)!;
+
+      if (!classGroup || !teacher) continue;
+
+      const blockHoursToAssign = req.actualHours !== undefined ? req.actualHours : req.blockSize;
+      if (teacherAssignedHours[teacher.id] + blockHoursToAssign > teacher.maxHoursPerWeek) {
+        unplacedRequests.push(req);
+        conflictsSolved++;
+        continue;
+      }
+
+      let placed = false;
+      const isFirstCycle = ['6ème', '5ème', '4ème', '3ème'].includes(classGroup.level);
+      const dayOrder: DayOfWeek[] = isFirstCycle
+        ? ['Mercredi', 'Lundi', 'Mardi', 'Jeudi', 'Vendredi']
+        : ['Lundi', 'Mardi', 'Jeudi', 'Vendredi', 'Mercredi'];
+
+      for (const strictGaps of [true, false]) {
+        if (placed || totalTries >= TRY_LIMIT) break;
+
+        for (const day of dayOrder) {
+          if (placed || totalTries >= TRY_LIMIT) break;
+
+          let hoursOnDay = 0;
+          for (const [key, value] of Object.entries(classSchedules[classGroup.id] || {})) {
+            if (key.startsWith(`${day}-`) && value.subjectId === req.subjectId) hoursOnDay++;
+          }
+          if (hoursOnDay + req.blockSize > 2) continue;
+
+          const totalSlots = TIME_SLOTS.length;
+
+          for (let i = 0; i <= totalSlots - req.blockSize; i++) {
+            totalTries++;
+            if (totalTries >= TRY_LIMIT) break;
+
+            const slotsToTest = TIME_SLOTS.slice(i, i + req.blockSize);
+            const isLunchSpan = slotsToTest.some(s => s.period === 'Matin') && slotsToTest.some(s => s.period === 'Après-midi');
+            if (isLunchSpan) continue;
+
+            if (req.subjectId === 'eps') {
+              let epsSlotsOk = true;
+              for (const slot of slotsToTest) {
+                if (isFirstCycle) {
+                  if (!['M1', 'M2', 'M3'].includes(slot.id)) { epsSlotsOk = false; break; }
+                } else {
+                  if (!['A2', 'A3', 'A4', 'A5'].includes(slot.id)) { epsSlotsOk = false; break; }
+                }
+                if (slot.id === 'A1' || slot.id === 'M4' || slot.id === 'M5') { epsSlotsOk = false; break; }
+              }
+              if (!epsSlotsOk) continue;
+            }
+
+            let ok = true;
+
+            for (const slot of slotsToTest) {
+              const key = `${day}-${slot.id}`;
+              if (isAfternoonRestPeriod(day, slot.id)) { ok = false; break; }
+              if (teacher.unavailabilities && teacher.unavailabilities.includes(key)) { ok = false; break; }
+              if (teacherSchedules[teacher.id]?.[key]) { ok = false; break; }
+              if (classSchedules[classGroup.id]?.[key]) { ok = false; break; }
+              if (isSlotBlockedByDoubleVacation(classGroup.doubleVacation, day, slot.id)) { ok = false; break; }
+            }
+
+            if (!ok) continue;
+
+            if (strictGaps) {
+              const classSlotsOnDay: string[] = [];
+              TIME_SLOTS.forEach(ts => {
+                if (classSchedules[classGroup.id]?.[`${day}-${ts.id}`] || slotsToTest.some(s => s.id === ts.id)) {
+                  classSlotsOnDay.push(ts.id);
+                }
+              });
+              const teacherSlotsOnDay: string[] = [];
+              TIME_SLOTS.forEach(ts => {
+                if (teacherSchedules[teacher.id]?.[`${day}-${ts.id}`] || slotsToTest.some(s => s.id === ts.id)) {
+                  teacherSlotsOnDay.push(ts.id);
+                }
+              });
+
+              if (hasInvalidGaps(classSlotsOnDay) || hasInvalidGaps(teacherSlotsOnDay)) continue;
+            }
+
+            const eligibleRooms = getEligibleRooms(req.subjectId, classGroup.studentCount);
+            let selectedRoom: Room | null = null;
+
+            for (const room of eligibleRooms) {
+              let roomFree = true;
+              for (const slot of slotsToTest) {
+                const key = `${day}-${slot.id}`;
+                if (roomSchedules[room.id]?.[key]) { roomFree = false; break; }
+              }
+              if (roomFree) { selectedRoom = room; break; }
+            }
+
+            if (selectedRoom) {
+              slotsToTest.forEach(slot => {
+                const key = `${day}-${slot.id}`;
+                if (!teacherSchedules[teacher.id]) teacherSchedules[teacher.id] = {};
+                if (!classSchedules[classGroup.id]) classSchedules[classGroup.id] = {};
+                if (!roomSchedules[selectedRoom!.id]) roomSchedules[selectedRoom!.id] = {};
+
+                teacherSchedules[teacher.id][key] = classGroup.id;
+                classSchedules[classGroup.id][key] = {
+                  subjectId: req.subjectId,
+                  teacherId: teacher.id,
+                  roomId: selectedRoom!.id
+                };
+                roomSchedules[selectedRoom!.id][key] = classGroup.id;
+
+                entries.push({
+                  id: `entry_${classGroup.id}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+                  day: day,
+                  slot: slot.id,
+                  slot_id: slot.id,
+                  class_name: classGroup.name,
+                  class_id: classGroup.id,
+                  teacher_name: teacher.name,
+                  teacher_id: teacher.id,
+                  subject: req.subjectId.toUpperCase(),
+                  room_name: selectedRoom!.name,
+                  room_id: selectedRoom!.id,
+                });
+              });
+
+              teacherAssignedHours[teacher.id] += blockHoursToAssign;
+              placed = true;
+              break;
+            }
+          }
         }
       }
 
       if (!placed) {
-        conflicts++;
+        if (totalTries < TRY_LIMIT && req.blockSize === 2 && !isSvtPc1h30(classGroup.level, req.subjectId)) {
+          requests.push({ ...req, blockSize: 1 });
+          requests.push({ ...req, blockSize: 1 });
+          conflictsSolved++;
+        } else unplacedRequests.push(req);
       }
     }
 
-    const endTime = performance.now();
-    const duration = Math.round(endTime - startTime);
+    const generationTimeMs = Date.now() - startTimeMs;
+    const totalHoursNeeded = requests.length;
+    const assignedHours = entries.length;
+    const successRate = totalHoursNeeded > 0 ? Math.round((assignedHours / totalHoursNeeded) * 100) : 100;
 
-    // 4. Enregistrement des données
-    localStorage.setItem("edutime_timetable_entries_v1", JSON.stringify(generatedEntries));
+    // Enregistrement des données
+    localStorage.setItem("edutime_timetable_entries_v1", JSON.stringify(entries));
 
-    if (supabase && generatedEntries.length > 0) {
+    if (supabase && entries.length > 0) {
       try {
         await supabase.from("timetable_entries").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-        const { error } = await supabase.from("timetable_entries").insert(generatedEntries);
-        if (error) {
-          console.error("Erreur insertion Supabase timetable_entries :", error.message);
-        }
+        const { error } = await supabase.from("timetable_entries").insert(entries);
+        if (error) console.error("Erreur Supabase insertion :", error.message);
       } catch (err) {
         console.error("Erreur Supabase :", err);
       }
     }
 
-    const totalTasks = tasks.length || 1;
-    const successRate = Math.min(100, Math.round((plannedHours / totalTasks) * 1000) / 10);
-
     setStats({
-      successRate: isNaN(successRate) ? 100 : successRate,
-      conflicts,
-      hoursPlanned: plannedHours,
-      executionTime: duration,
+      successRate,
+      conflicts: unplacedRequests.length,
+      hoursPlanned: assignedHours,
+      executionTime: generationTimeMs,
     });
 
     setIsGenerating(false);
-    alert(`Emploi du temps rééquilibré généré avec succès ! (${plannedHours} heures placées sur ${totalTasks} prévues)`);
+    alert(`Moteur MENA exécuté ! ${assignedHours} créneaux placés avec un taux de réussite de ${successRate}%.`);
   };
 
   if (!isMounted) {
     return (
       <div className="p-8 space-y-6">
-        <DashboardHeader title="Moteur de Génération d'Emploi du Temps" description="Algorithme de répartition sous contraintes MENA" />
-        <div className="text-xs text-slate-400">Chargement du moteur...</div>
+        <DashboardHeader title="Moteur de Génération d'Emploi du Temps" description="Moteur de résolution MENA Côte d'Ivoire" />
+        <div className="text-xs text-slate-400">Chargement...</div>
       </div>
     );
   }
@@ -289,10 +549,10 @@ export default function ScheduleGeneratorPage() {
           <div className="space-y-2">
             <h3 className="text-base font-extrabold text-white flex items-center gap-2">
               <Calendar className="size-5 text-emerald-400" />
-              Lancer la génération automatique équilibrée
+              Lancer le moteur de génération MENA
             </h3>
             <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
-              L&apos;algorithme va distribuer les cours de vos <strong>{dataCount.classes} classes</strong> et <strong>{dataCount.teachers} enseignants</strong> équitablement du Lundi au Vendredi.
+              L&apos;algorithme va construire la grille pour vos <strong>{dataCount.classes} classes</strong> et <strong>{dataCount.teachers} enseignants</strong> selon les règles MENA.
             </p>
           </div>
 
@@ -303,7 +563,7 @@ export default function ScheduleGeneratorPage() {
           >
             {isGenerating ? (
               <>
-                <Clock className="size-4 animate-spin" /> Distribution en cours...
+                <Clock className="size-4 animate-spin" /> Moteur en cours d&apos;exécution...
               </>
             ) : (
               <>
