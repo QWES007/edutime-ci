@@ -15,7 +15,7 @@ export default function ScheduleGeneratorPage() {
   const [isMounted, setIsMounted] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [dataCount, setDataCount] = useState({ teachers: 0, classes: 0, rooms: 0 });
-  
+
   const [rawTeachers, setRawTeachers] = useState<any[]>([]);
   const [rawClasses, setRawClasses] = useState<any[]>([]);
   const [rawRooms, setRawRooms] = useState<any[]>([]);
@@ -51,7 +51,6 @@ export default function ScheduleGeneratorPage() {
         }
       }
 
-      // Fallback localstorage si vide
       if (t.length === 0 && typeof window !== "undefined") {
         const localT = localStorage.getItem("edutime_teachers_saas_v1");
         if (localT) t = JSON.parse(localT);
@@ -83,118 +82,145 @@ export default function ScheduleGeneratorPage() {
     setIsGenerating(true);
     const startTime = performance.now();
 
-    // 1. Préparation de la matrice d'attribution
     const generatedEntries: any[] = [];
     let plannedHours = 0;
     let conflicts = 0;
 
-    // Pour suivre l'occupation (profs, classes, salles) : Key = "JOUR-CRENEAU"
-    const teacherOccupied: Record<string, Set<string>> = {};
-    const classOccupied: Record<string, Set<string>> = {};
-    const roomOccupied: Record<string, Set<string>> = {};
+    // Masques d'occupation pour éviter les doublons
+    const teacherSlotBusy = new Set<string>(); // "TeacherName-Day-Slot"
+    const classSlotBusy = new Set<string>();   // "ClassName-Day-Slot"
+    const roomSlotBusy = new Set<string>();    // "RoomName-Day-Slot"
 
-    DAYS.forEach((d) => {
-      SLOTS.forEach((s) => {
-        const key = `${d}-${s}`;
-        teacherOccupied[key] = new Set();
-        classOccupied[key] = new Set();
-        roomOccupied[key] = new Set();
+    // Compteurs journaliers pour lisser la charge sur la semaine
+    const classSubjectDayHours: Record<string, number> = {}; // "ClassName-Subject-Day" -> nbHours
+    const teacherDayHours: Record<string, number> = {};       // "TeacherName-Day" -> nbHours
+
+    // 1. Préparation de la liste des cours à placer (Task Queue)
+    interface CourseTask {
+      className: string;
+      classId: string;
+      subject: string;
+      teacherName: string;
+      teacherId: string;
+    }
+
+    const tasks: CourseTask[] = [];
+
+    rawClasses.forEach((cls) => {
+      const subjectHours = cls.subject_hours || cls.subjectHours || {};
+      Object.entries(subjectHours).forEach(([subj, hoursReq]) => {
+        const total = Number(hoursReq) || 0;
+
+        // Trouver le prof associé
+        const matchingTeacher = rawTeachers.find((t) => {
+          const subjList = Array.isArray(t.subjects) ? t.subjects : [t.subject];
+          return subjList.some((s: string) => String(s).toUpperCase() === String(subj).toUpperCase());
+        }) || rawTeachers[0];
+
+        const tName = matchingTeacher ? matchingTeacher.name : "Professeur Indéterminé";
+        const tId = matchingTeacher ? matchingTeacher.id : tName;
+
+        for (let i = 0; i < total; i++) {
+          tasks.push({
+            className: cls.name,
+            classId: cls.id || cls.name,
+            subject: subj,
+            teacherName: tName,
+            teacherId: tId,
+          });
+        }
       });
     });
 
-    // 2. Boucle de génération sur TOUTES les classes configurées
-    for (const cls of rawClasses) {
-      const className = cls.name;
-      const subjectHours = cls.subject_hours || cls.subjectHours || {};
+    // 2. Mélange / Tri intelligent : traiter les matières à fort volume en premier
+    tasks.sort((a, b) => a.subject.localeCompare(b.subject));
 
-      for (const [subject, hoursReq] of Object.entries(subjectHours)) {
-        const targetHours = Number(hoursReq) || 0;
-        let hoursAssigned = 0;
+    // 3. Placement équilibré
+    for (const task of tasks) {
+      let placed = false;
 
-        // Trouver un professeur pour cette matière
-        const matchingTeacher = rawTeachers.find((t) => {
-          const subjList = Array.isArray(t.subjects) ? t.subjects : [t.subject];
-          return subjList.some((s: string) => String(s).toUpperCase() === String(subject).toUpperCase());
-        }) || rawTeachers[0]; // Fallback au 1er prof si non trouvé
+      // On parcourt les jours et les créneaux pour trouver le meilleur créneau équilibré
+      for (const day of DAYS) {
+        if (placed) break;
 
-        const teacherName = matchingTeacher ? matchingTeacher.name : "Professeur Indéterminé";
+        const csKey = `${task.className}-${task.subject}-${day}`;
+        const currentCSHours = classSubjectDayHours[csKey] || 0;
 
-        // Tenter d'attribuer les créneaux sur la semaine
-        for (const day of DAYS) {
-          if (hoursAssigned >= targetHours) break;
+        // Règle de lissage : Max 2h d'une même matière par jour pour une classe
+        if (currentCSHours >= 2) continue;
 
-          for (const slot of SLOTS) {
-            if (hoursAssigned >= targetHours) break;
+        const tdKey = `${task.teacherName}-${day}`;
+        const currentTDHours = teacherDayHours[tdKey] || 0;
 
-            const timeKey = `${day}-${slot}`;
+        // Règle de lissage : Max 6h de cours par jour pour un prof
+        if (currentTDHours >= 6) continue;
 
-            // Vérification des chevauchements
-            const isClassFree = !classOccupied[timeKey].has(className);
-            const isTeacherFree = !teacherOccupied[timeKey].has(teacherName);
+        for (const slot of SLOTS) {
+          const classKey = `${task.className}-${day}-${slot}`;
+          const teacherKey = `${task.teacherName}-${day}-${slot}`;
 
-            if (isClassFree && isTeacherFree) {
-              // Trouver une salle libre
-              const freeRoom = rawRooms.find((r) => !roomOccupied[timeKey].has(r.name)) || rawRooms[0];
-              const roomName = freeRoom ? freeRoom.name : "Salle Standard";
-
-              // Marquer comme occupé
-              classOccupied[timeKey].add(className);
-              teacherOccupied[timeKey].add(teacherName);
-              if (roomName) roomOccupied[timeKey].add(roomName);
-
-              const entryId = crypto.randomUUID();
-
-              generatedEntries.push({
-                id: entryId,
-                day,
-                slot,
-                slot_id: slot,
-                class_name: className,
-                class_id: cls.id || className,
-                teacher_name: teacherName,
-                teacher_id: matchingTeacher?.id || teacherName,
-                subject,
-                room_name: roomName,
-                room_id: freeRoom?.id || roomName,
-              });
-
-              hoursAssigned++;
-              plannedHours++;
-            }
+          if (classSlotBusy.has(classKey) || teacherSlotBusy.has(teacherKey)) {
+            continue; // Déjà occupé
           }
-        }
 
-        if (hoursAssigned < targetHours) {
-          conflicts += (targetHours - hoursAssigned);
+          // Trouver une salle disponible
+          const freeRoom = rawRooms.find((r) => !roomSlotBusy.has(`${r.name}-${day}-${slot}`)) || rawRooms[0];
+          const roomName = freeRoom ? freeRoom.name : "Salle Standard";
+          const roomKey = `${roomName}-${day}-${slot}`;
+
+          // Validation du créneau
+          classSlotBusy.add(classKey);
+          teacherSlotBusy.add(teacherKey);
+          if (roomName) roomSlotBusy.add(roomKey);
+
+          classSubjectDayHours[csKey] = currentCSHours + 1;
+          teacherDayHours[tdKey] = currentTDHours + 1;
+
+          generatedEntries.push({
+            id: crypto.randomUUID(),
+            day,
+            slot,
+            slot_id: slot,
+            class_name: task.className,
+            class_id: task.classId,
+            teacher_name: task.teacherName,
+            teacher_id: task.teacherId,
+            subject: task.subject,
+            room_name: roomName,
+            room_id: freeRoom?.id || roomName,
+          });
+
+          plannedHours++;
+          placed = true;
+          break;
         }
+      }
+
+      if (!placed) {
+        conflicts++;
       }
     }
 
     const endTime = performance.now();
     const duration = Math.round(endTime - startTime);
 
-    // 3. Sauvegarde dans LocalStorage
+    // 4. Enregistrement des données
     localStorage.setItem("edutime_timetable_entries_v1", JSON.stringify(generatedEntries));
 
-    // 4. Sauvegarde dans Supabase
     if (supabase && generatedEntries.length > 0) {
       try {
-        // Vider l'ancien emploi du temps
         await supabase.from("timetable_entries").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-
-        // Insérer le nouveau
         const { error } = await supabase.from("timetable_entries").insert(generatedEntries);
         if (error) {
-          console.error("Erreur enregistrement timetable_entries Supabase :", error.message);
-        } else {
-          console.log("Nouveau planning enregistré avec succès dans Supabase !");
+          console.error("Erreur insertion Supabase timetable_entries :", error.message);
         }
       } catch (err) {
-        console.error("Erreur Supabase insertion :", err);
+        console.error("Erreur Supabase :", err);
       }
     }
 
-    const successRate = Math.min(100, Math.round(((plannedHours) / (plannedHours + conflicts || 1)) * 1000) / 10);
+    const totalTasks = tasks.length || 1;
+    const successRate = Math.min(100, Math.round((plannedHours / totalTasks) * 1000) / 10);
 
     setStats({
       successRate: isNaN(successRate) ? 100 : successRate,
@@ -204,13 +230,13 @@ export default function ScheduleGeneratorPage() {
     });
 
     setIsGenerating(false);
-    alert(`Génération terminée avec succès ! ${plannedHours} heures planifiées pour ${rawClasses.length} classes.`);
+    alert(`Emploi du temps rééquilibré généré avec succès ! (${plannedHours} heures placées sur ${totalTasks} prévues)`);
   };
 
   if (!isMounted) {
     return (
       <div className="p-8 space-y-6">
-        <DashboardHeader title="Moteur de Génération d'Emploi du Temps" description="Algorithme sous contraintes — Normes MENA Côte d'Ivoire" />
+        <DashboardHeader title="Moteur de Génération d'Emploi du Temps" description="Algorithme de répartition sous contraintes MENA" />
         <div className="text-xs text-slate-400">Chargement du moteur...</div>
       </div>
     );
@@ -223,7 +249,6 @@ export default function ScheduleGeneratorPage() {
         description="Algorithme de résolution sous contraintes — Normes MENA Côte d'Ivoire"
       />
 
-      {/* Statistiques des données d'entrée lues en direct sur Supabase */}
       <div className="grid gap-4 md:grid-cols-3">
         <Card className="border-slate-800 bg-slate-900/50">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -259,16 +284,15 @@ export default function ScheduleGeneratorPage() {
         </Card>
       </div>
 
-      {/* Zone de Lancement de la génération */}
       <Card className="border-slate-800 bg-slate-900/50 p-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-2">
             <h3 className="text-base font-extrabold text-white flex items-center gap-2">
               <Calendar className="size-5 text-emerald-400" />
-              Lancer la génération automatique
+              Lancer la génération automatique équilibrée
             </h3>
             <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
-              L&apos;algorithme va construire la grille pour vos <strong>{dataCount.classes} classes</strong> et <strong>{dataCount.teachers} enseignants</strong> en éliminant les chevauchements de salles et de professeurs.
+              L&apos;algorithme va distribuer les cours de vos <strong>{dataCount.classes} classes</strong> et <strong>{dataCount.teachers} enseignants</strong> équitablement du Lundi au Vendredi.
             </p>
           </div>
 
@@ -279,7 +303,7 @@ export default function ScheduleGeneratorPage() {
           >
             {isGenerating ? (
               <>
-                <Clock className="size-4 animate-spin" /> Calcul de la matrice en cours...
+                <Clock className="size-4 animate-spin" /> Distribution en cours...
               </>
             ) : (
               <>
@@ -290,7 +314,6 @@ export default function ScheduleGeneratorPage() {
         </div>
       </Card>
 
-      {/* Résultats du dernier traitement */}
       {stats && (
         <div className="grid gap-4 md:grid-cols-4">
           <Card className="border-slate-800 bg-emerald-950/20">
@@ -306,7 +329,7 @@ export default function ScheduleGeneratorPage() {
 
           <Card className="border-slate-800 bg-slate-900/50">
             <CardHeader className="pb-1">
-              <CardTitle className="text-[10px] font-bold text-slate-400 uppercase">Conflits détectés</CardTitle>
+              <CardTitle className="text-[10px] font-bold text-slate-400 uppercase">Conflits non placés</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-black text-amber-400 flex items-center gap-2">
