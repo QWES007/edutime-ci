@@ -7,8 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { GraduationCap, Plus, Trash2, RotateCcw, FileSpreadsheet, Upload } from "lucide-react";
-import * as XLSX from "xlsx";
+import { GraduationCap, Plus, Trash2, RotateCcw, Edit2 } from "lucide-react";
 
 interface ClassGroup {
   id: string;
@@ -26,7 +25,7 @@ const DEFAULT_MENA_HOURS: Record<string, Record<string, number>> = {
   "5ème": { MATHS: 4, PC: 2, SVT: 2, FR: 5, PHILO: 0, ANG: 3, LV2: 3, HG: 3, ARTS: 1, EDHC: 1, EPS: 2, TICE: 1 },
   "4ème": { MATHS: 4, PC: 2, SVT: 2, FR: 5, PHILO: 0, ANG: 3, LV2: 3, HG: 3, ARTS: 1, EDHC: 1, EPS: 2, TICE: 1 },
   "3ème": { MATHS: 5, PC: 3, SVT: 3, FR: 5, PHILO: 0, ANG: 3, LV2: 3, HG: 3, ARTS: 1, EDHC: 1, EPS: 2, TICE: 1 },
-  "2nde A": { MATHS: 3, PC: 2, SVT: 2, FR: 5, PHILO: 0, ANG: 4, LV2: 4, HG: 4, ARTS: 1, EDHC: 1, EPS: 2, TICE: 1 },
+  "2nde A": { MATHS: 3, PC: 0, SVT: 2, FR: 5, PHILO: 0, ANG: 4, LV2: 4, HG: 4, ARTS: 1, EDHC: 1, EPS: 2, TICE: 1 },
   "2nde C": { MATHS: 6, PC: 5, SVT: 4, FR: 4, PHILO: 0, ANG: 3, LV2: 3, HG: 3, ARTS: 1, EDHC: 1, EPS: 2, TICE: 1 },
   "1ère A1": { MATHS: 2, PC: 0, SVT: 2, FR: 5, PHILO: 4, ANG: 4, LV2: 4, HG: 4, ARTS: 1, EDHC: 1, EPS: 2, TICE: 1 },
   "1ère A2": { MATHS: 3, PC: 0, SVT: 2, FR: 5, PHILO: 4, ANG: 4, LV2: 4, HG: 4, ARTS: 1, EDHC: 1, EPS: 2, TICE: 1 },
@@ -41,20 +40,18 @@ const DEFAULT_MENA_HOURS: Record<string, Record<string, number>> = {
 export default function ClassesPage() {
   const supabase = createClient();
   const [classes, setClasses] = useState<ClassGroup[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [className, setClassName] = useState("");
   const [level, setLevel] = useState("6ème");
   const [studentCount, setStudentCount] = useState(45);
   const [doubleVacation, setDoubleVacation] = useState<"none" | "A" | "B">("none");
   const [subjectHours, setSubjectHours] = useState<Record<string, number>>(DEFAULT_MENA_HOURS["6ème"]);
-  const [insertMode, setInsertMode] = useState<"manual" | "excel">("manual");
   const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
     setIsMounted(true);
-
     const loadClasses = async () => {
       let loaded: ClassGroup[] = [];
-
       if (supabase) {
         try {
           const { data } = await supabase.from("classgroups").select("*");
@@ -68,199 +65,118 @@ export default function ClassesPage() {
               double_vacation: c.double_vacation || "none",
             }));
           }
-        } catch (e) {
-          console.error("Erreur Supabase Classes :", e);
-        }
+        } catch (e) { console.error(e); }
       }
-
-      if (loaded.length === 0 && typeof window !== "undefined") {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) {
-          try { loaded = JSON.parse(saved); } catch (e) { console.error(e); }
-        }
-      }
-
       setClasses(loaded);
     };
-
     loadClasses();
   }, []);
 
-  useEffect(() => {
-    setSubjectHours(DEFAULT_MENA_HOURS[level] || {});
-  }, [level]);
-
-  const handleHourChange = (subject: string, val: number) => {
-    setSubjectHours((prev) => ({
-      ...prev,
-      [subject]: Math.max(0, val),
-    }));
+  const handleSelectClassForEdit = (c: ClassGroup) => {
+    setEditingId(c.id);
+    setClassName(c.name);
+    setLevel(c.level);
+    setStudentCount(c.student_count);
+    setDoubleVacation(c.double_vacation || "none");
+    setSubjectHours(c.subject_hours || DEFAULT_MENA_HOURS[c.level] || {});
   };
 
-  const handleAddClass = async (e: React.FormEvent) => {
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setClassName("");
+    setLevel("6ème");
+    setStudentCount(45);
+    setDoubleVacation("none");
+    setSubjectHours(DEFAULT_MENA_HOURS["6ème"]);
+  };
+
+  const handleHourChange = (subject: string, val: number) => {
+    setSubjectHours((prev) => ({ ...prev, [subject]: Math.max(0, val) }));
+  };
+
+  const handleSaveClass = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!className.trim()) return;
 
-    const newClass: ClassGroup = {
-      id: crypto.randomUUID(),
-      name: className.trim(),
-      level,
-      student_count: Number(studentCount),
-      subject_hours: subjectHours,
-      double_vacation: doubleVacation,
-    };
+    if (editingId) {
+      const updated = classes.map((c) =>
+        c.id === editingId
+          ? { ...c, name: className.trim(), level, student_count: Number(studentCount), double_vacation: doubleVacation, subject_hours: subjectHours }
+          : c
+      );
+      setClasses(updated);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 
-    const updated = [newClass, ...classes];
-    setClasses(updated);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-
-    if (supabase) {
-      const { error } = await supabase.from("classgroups").insert([{
-        id: newClass.id,
-        name: newClass.name,
-        level: newClass.level,
-        student_count: newClass.student_count,
-        subject_hours: newClass.subject_hours,
-        double_vacation: newClass.double_vacation,
-      }]);
-      if (error) console.error("Erreur insertion classe Supabase :", error.message);
-    }
-
-    setClassName("");
-  };
-
-  const handleExcelImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async (evt) => {
-      try {
-        const buffer = evt.target?.result as ArrayBuffer;
-        const wb = XLSX.read(buffer, { type: "array" });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const data = XLSX.utils.sheet_to_json(ws) as any[];
-
-        const importedClasses: ClassGroup[] = [];
-        const supabasePayloads: any[] = [];
-
-        data.forEach((row) => {
-          const keys = Object.keys(row);
-          if (keys.length === 0) return;
-
-          const nameKey = keys.find(k => /classe|nom|division/i.test(k)) || keys[0];
-          const levelKey = keys.find(k => /niveau|cycle/i.test(k)) || keys[1];
-
-          const rawName = row[nameKey];
-          const rawLevel = levelKey ? String(row[levelKey]).trim() : "6ème";
-
-          if (rawName) {
-            const id = crypto.randomUUID();
-            const nameStr = String(rawName).trim();
-            const hours = DEFAULT_MENA_HOURS[rawLevel] || DEFAULT_MENA_HOURS["6ème"];
-
-            importedClasses.push({
-              id,
-              name: nameStr,
-              level: rawLevel,
-              student_count: 45,
-              subject_hours: hours,
-              double_vacation: "none",
-            });
-
-            supabasePayloads.push({
-              id,
-              name: nameStr,
-              level: rawLevel,
-              student_count: 45,
-              subject_hours: hours,
-              double_vacation: "none",
-            });
-          }
-        });
-
-        if (importedClasses.length === 0) {
-          alert("Aucune classe lue dans le fichier.");
-          return;
-        }
-
-        const merged = [...importedClasses, ...classes];
-        setClasses(merged);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
-
-        if (supabase) {
-          const { error } = await supabase.from("classgroups").insert(supabasePayloads);
-          if (error) alert(`Erreur Supabase : ${error.message}`);
-          else alert(`${importedClasses.length} classe(s) importée(s) !`);
-        }
-
-        setInsertMode("manual");
-      } catch (err: any) {
-        alert(`Erreur lecture fichier : ${err.message}`);
+      if (supabase) {
+        await supabase.from("classgroups").update({
+          name: className.trim(),
+          level,
+          student_count: Number(studentCount),
+          double_vacation: doubleVacation,
+          subject_hours: subjectHours,
+        }).eq("id", editingId);
       }
-    };
+      handleCancelEdit();
+    } else {
+      const newClass: ClassGroup = {
+        id: crypto.randomUUID(),
+        name: className.trim(),
+        level,
+        student_count: Number(studentCount),
+        subject_hours: subjectHours,
+        double_vacation: doubleVacation,
+      };
 
-    reader.readAsArrayBuffer(file);
+      const updated = [newClass, ...classes];
+      setClasses(updated);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+
+      if (supabase) {
+        await supabase.from("classgroups").insert([{
+          id: newClass.id,
+          name: newClass.name,
+          level: newClass.level,
+          student_count: newClass.student_count,
+          subject_hours: newClass.subject_hours,
+          double_vacation: newClass.double_vacation,
+        }]);
+      }
+      setClassName("");
+    }
   };
 
-  const handleDeleteClass = async (id: string) => {
+  const handleDeleteClass = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
     const filtered = classes.filter((c) => c.id !== id);
     setClasses(filtered);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+    if (editingId === id) handleCancelEdit();
 
     if (supabase) {
       await supabase.from("classgroups").delete().eq("id", id);
     }
   };
 
-  const handleResetClasses = async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    setClasses([]);
-    localStorage.removeItem(STORAGE_KEY);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
-
-    if (supabase) {
-      await supabase.from("classgroups").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-    }
-  };
-
-  if (!isMounted) {
-    return (
-      <div className="p-8 space-y-6">
-        <DashboardHeader title="Divisions & Classes" description="Configuration des niveaux MENA" />
-        <div className="text-xs text-slate-400">Chargement...</div>
-      </div>
-    );
-  }
+  if (!isMounted) return <div className="p-8 text-xs text-slate-400">Chargement...</div>;
 
   return (
     <div className="p-8 space-y-6 max-w-7xl mx-auto">
       <DashboardHeader
         title="Configuration des Divisions & Classes"
-        description="Configurez vos classes et définissez leurs volumes horaires d'enseignement hebdomadaire."
+        description="Cliquez sur n'importe quelle classe pour modifier son niveau, sa double vacation ou son volume horaire."
       />
 
       <div className="grid gap-6 md:grid-cols-12">
         <div className="md:col-span-5 space-y-6">
           <Card className="border-slate-800 bg-slate-900/50">
             <CardHeader className="pb-3 border-b border-slate-800">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-bold text-white flex items-center gap-2">
-                  <GraduationCap className="size-4 text-emerald-400" /> Création d&apos;une Division Académique
-                </CardTitle>
-                <button
-                  type="button"
-                  onClick={handleResetClasses}
-                  className="text-[10px] h-6 px-2 text-rose-400 border border-rose-500/30 hover:bg-rose-500/10 rounded font-bold transition-all flex items-center gap-1 cursor-pointer"
-                >
-                  <RotateCcw className="size-3" /> Réinitialiser
-                </button>
-              </div>
+              <CardTitle className="text-sm font-bold text-white flex items-center gap-2">
+                <GraduationCap className="size-4 text-emerald-400" />
+                {editingId ? "Modifier la classe" : "Création d'une Division"}
+              </CardTitle>
             </CardHeader>
             <CardContent className="pt-4 space-y-4">
-              <form onSubmit={handleAddClass} className="space-y-4">
+              <form onSubmit={handleSaveClass} className="space-y-4">
                 <div>
                   <Label className="text-xs font-semibold text-slate-300">Désignation de la classe</Label>
                   <Input
@@ -277,7 +193,10 @@ export default function ClassesPage() {
                     <Label className="text-xs font-semibold text-slate-300">Niveau d&apos;enseignement</Label>
                     <select
                       value={level}
-                      onChange={(e) => setLevel(e.target.value)}
+                      onChange={(e) => {
+                        setLevel(e.target.value);
+                        setSubjectHours(DEFAULT_MENA_HOURS[e.target.value] || {});
+                      }}
                       className="mt-1 w-full bg-slate-950 border border-slate-800 rounded-md p-2 text-xs text-emerald-400 font-bold focus:outline-none"
                     >
                       {Object.keys(DEFAULT_MENA_HOURS).map((lvl) => (
@@ -297,46 +216,28 @@ export default function ClassesPage() {
                   </div>
                 </div>
 
-                {/* SÉLECTEUR DE DOUBLE VACATION MENA */}
+                {/* DOUBLE VACATION */}
                 <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-2">
                   <Label className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider block">
                     Système de Double Vacation (Rotation MENA)
                   </Label>
                   <div className="space-y-1.5 text-xs text-slate-300">
                     <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="vacation"
-                        checked={doubleVacation === "none"}
-                        onChange={() => setDoubleVacation("none")}
-                        className="accent-emerald-500"
-                      />
+                      <input type="radio" name="vacation" checked={doubleVacation === "none"} onChange={() => setDoubleVacation("none")} className="accent-emerald-500" />
                       <span>Plein temps (Standard)</span>
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="vacation"
-                        checked={doubleVacation === "A"}
-                        onChange={() => setDoubleVacation("A")}
-                        className="accent-emerald-500"
-                      />
+                      <input type="radio" name="vacation" checked={doubleVacation === "A"} onChange={() => setDoubleVacation("A")} className="accent-emerald-500" />
                       <span>Vague A <span className="text-[10px] text-slate-500">(L/M/V Matin, M/J Après-midi)</span></span>
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="vacation"
-                        checked={doubleVacation === "B"}
-                        onChange={() => setDoubleVacation("B")}
-                        className="accent-emerald-500"
-                      />
+                      <input type="radio" name="vacation" checked={doubleVacation === "B"} onChange={() => setDoubleVacation("B")} className="accent-emerald-500" />
                       <span>Vague B <span className="text-[10px] text-slate-500">(L/M/V Après-midi, M/J Matin)</span></span>
                     </label>
                   </div>
                 </div>
 
-                {/* VOLUMES HORAIRES MENA */}
+                {/* HEURES REQUISES */}
                 <div className="space-y-2">
                   <Label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
                     Volumes Horaires Requis ({level})
@@ -356,40 +257,58 @@ export default function ClassesPage() {
                   </div>
                 </div>
 
-                <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs h-9 cursor-pointer">
-                  Enregistrer la classe
-                </Button>
+                <div className="flex gap-2">
+                  <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs h-9">
+                    {editingId ? "Mettre à jour la classe" : "Enregistrer la classe"}
+                  </Button>
+                  {editingId && (
+                    <Button type="button" variant="outline" onClick={handleCancelEdit} className="text-xs h-9 border-slate-800 text-slate-300">
+                      Annuler
+                    </Button>
+                  )}
+                </div>
               </form>
             </CardContent>
           </Card>
         </div>
 
-        <div className="md:col-span-7 space-y-4 max-h-[600px] overflow-y-auto pr-1">
-          {classes.map((c) => (
-            <Card key={c.id} className="border-slate-800 bg-slate-900/50">
-              <CardContent className="p-4 flex items-center justify-between">
-                <div>
-                  <h4 className="font-extrabold text-sm text-white flex items-center gap-2">
-                    {c.name}
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
-                      {c.level}
-                    </span>
-                    {c.double_vacation !== "none" && (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold">
-                        Vague {c.double_vacation}
+        {/* Liste des classes cliquables */}
+        <div className="md:col-span-7 space-y-3 max-h-[600px] overflow-y-auto pr-1">
+          {classes.map((c) => {
+            const isSelected = editingId === c.id;
+            return (
+              <Card
+                key={c.id}
+                onClick={() => handleSelectClassForEdit(c)}
+                className={`border cursor-pointer transition-all ${
+                  isSelected ? "bg-emerald-950/30 border-emerald-500 ring-1 ring-emerald-500" : "bg-slate-900/50 border-slate-800 hover:border-slate-700"
+                }`}
+              >
+                <CardContent className="p-4 flex items-center justify-between">
+                  <div>
+                    <h4 className="font-extrabold text-sm text-white flex items-center gap-2">
+                      {c.name}
+                      <Edit2 className="size-3.5 text-slate-400 opacity-60" />
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
+                        {c.level}
                       </span>
-                    )}
-                  </h4>
-                  <p className="text-[11px] text-slate-400 mt-1">
-                    Effectif : {c.student_count} élèves &bull; Total : {Object.values(c.subject_hours).reduce((a, b) => a + b, 0)}h / semaine
-                  </p>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => handleDeleteClass(c.id)} className="text-slate-500 hover:text-rose-500 cursor-pointer">
-                  <Trash2 className="size-4" />
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
+                      {c.double_vacation !== "none" && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold">
+                          Vague {c.double_vacation}
+                        </span>
+                      )}
+                    </h4>
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Effectif : {c.student_count} élèves &bull; Total : {Object.values(c.subject_hours || {}).reduce((a, b) => a + b, 0)}h / semaine
+                    </p>
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={(e) => handleDeleteClass(c.id, e)} className="text-slate-500 hover:text-rose-500">
+                    <Trash2 className="size-4" />
+                  </Button>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       </div>
     </div>
