@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { GraduationCap, Plus, Trash2, RotateCcw, Edit2 } from "lucide-react";
+import { GraduationCap, Trash2, Edit2 } from "lucide-react";
 
 interface ClassGroup {
   id: string;
@@ -47,28 +47,30 @@ export default function ClassesPage() {
   const [doubleVacation, setDoubleVacation] = useState<"none" | "A" | "B">("none");
   const [subjectHours, setSubjectHours] = useState<Record<string, number>>(DEFAULT_MENA_HOURS["6ème"]);
   const [isMounted, setIsMounted] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const loadClasses = async () => {
+    let loaded: ClassGroup[] = [];
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.from("classgroups").select("*");
+        if (!error && data && data.length > 0) {
+          loaded = data.map((c: any) => ({
+            id: c.id,
+            name: c.name,
+            level: c.level || "6ème",
+            student_count: Number(c.student_count || 45),
+            subject_hours: c.subject_hours || DEFAULT_MENA_HOURS[c.level] || {},
+            double_vacation: c.double_vacation || "none",
+          }));
+        }
+      } catch (e) { console.error(e); }
+    }
+    setClasses(loaded);
+  };
 
   useEffect(() => {
     setIsMounted(true);
-    const loadClasses = async () => {
-      let loaded: ClassGroup[] = [];
-      if (supabase) {
-        try {
-          const { data } = await supabase.from("classgroups").select("*");
-          if (data && data.length > 0) {
-            loaded = data.map((c: any) => ({
-              id: c.id,
-              name: c.name,
-              level: c.level || "6ème",
-              student_count: Number(c.student_count || 45),
-              subject_hours: c.subject_hours || DEFAULT_MENA_HOURS[c.level] || {},
-              double_vacation: c.double_vacation || "none",
-            }));
-          }
-        } catch (e) { console.error(e); }
-      }
-      setClasses(loaded);
-    };
     loadClasses();
   }, []);
 
@@ -98,51 +100,38 @@ export default function ClassesPage() {
     e.preventDefault();
     if (!className.trim()) return;
 
-    if (editingId) {
-      const updated = classes.map((c) =>
-        c.id === editingId
-          ? { ...c, name: className.trim(), level, student_count: Number(studentCount), double_vacation: doubleVacation, subject_hours: subjectHours }
-          : c
-      );
-      setClasses(updated);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    setIsSaving(true);
+    const targetId = editingId || crypto.randomUUID();
 
-      if (supabase) {
-        await supabase.from("classgroups").update({
-          name: className.trim(),
-          level,
-          student_count: Number(studentCount),
-          double_vacation: doubleVacation,
-          subject_hours: subjectHours,
-        }).eq("id", editingId);
+    const payload = {
+      id: targetId,
+      name: className.trim(),
+      level,
+      student_count: Number(studentCount),
+      double_vacation: doubleVacation,
+      subject_hours: subjectHours,
+    };
+
+    // Mise à jour locale immédiate
+    const updated = editingId
+      ? classes.map((c) => (c.id === editingId ? payload : c))
+      : [payload, ...classes];
+
+    setClasses(updated);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+
+    // Sauvegarde fiable dans Supabase via upsert
+    if (supabase) {
+      const { error } = await supabase.from("classgroups").upsert(payload);
+      if (error) {
+        alert(`Erreur Supabase lors de la mise à jour : ${error.message}`);
+      } else {
+        await loadClasses(); // Synchronisation propre
       }
-      handleCancelEdit();
-    } else {
-      const newClass: ClassGroup = {
-        id: crypto.randomUUID(),
-        name: className.trim(),
-        level,
-        student_count: Number(studentCount),
-        subject_hours: subjectHours,
-        double_vacation: doubleVacation,
-      };
-
-      const updated = [newClass, ...classes];
-      setClasses(updated);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-
-      if (supabase) {
-        await supabase.from("classgroups").insert([{
-          id: newClass.id,
-          name: newClass.name,
-          level: newClass.level,
-          student_count: newClass.student_count,
-          subject_hours: newClass.subject_hours,
-          double_vacation: newClass.double_vacation,
-        }]);
-      }
-      setClassName("");
     }
+
+    setIsSaving(false);
+    handleCancelEdit();
   };
 
   const handleDeleteClass = async (id: string, e: React.MouseEvent) => {
@@ -163,7 +152,7 @@ export default function ClassesPage() {
     <div className="p-8 space-y-6 max-w-7xl mx-auto">
       <DashboardHeader
         title="Configuration des Divisions & Classes"
-        description="Cliquez sur n'importe quelle classe pour modifier son niveau, sa double vacation ou son volume horaire."
+        description="Cliquez sur n'importe quelle classe pour modifier son niveau, sa double vacation ou ses volumes horaires."
       />
 
       <div className="grid gap-6 md:grid-cols-12">
@@ -248,6 +237,7 @@ export default function ClassesPage() {
                         <span className="text-[10px] font-bold text-slate-300 block">{sub}</span>
                         <Input
                           type="number"
+                          step="0.5"
                           value={hours}
                           onChange={(e) => handleHourChange(sub, Number(e.target.value))}
                           className="h-6 text-center text-xs font-bold text-emerald-400 bg-transparent border-none p-0 focus-visible:ring-0"
@@ -258,8 +248,8 @@ export default function ClassesPage() {
                 </div>
 
                 <div className="flex gap-2">
-                  <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs h-9">
-                    {editingId ? "Mettre à jour la classe" : "Enregistrer la classe"}
+                  <Button type="submit" disabled={isSaving} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs h-9">
+                    {isSaving ? "Enregistrement..." : editingId ? "Mettre à jour la classe" : "Enregistrer la classe"}
                   </Button>
                   {editingId && (
                     <Button type="button" variant="outline" onClick={handleCancelEdit} className="text-xs h-9 border-slate-800 text-slate-300">
@@ -299,7 +289,7 @@ export default function ClassesPage() {
                       )}
                     </h4>
                     <p className="text-[11px] text-slate-400 mt-1">
-                      Effectif : {c.student_count} élèves &bull; Total : {Object.values(c.subject_hours || {}).reduce((a, b) => a + b, 0)}h / semaine
+                      Effectif : {c.student_count} élèves &bull; Total : {Object.values(c.subject_hours || {}).reduce((a, b) => a + Number(b), 0)}h / semaine
                     </p>
                   </div>
                   <Button variant="ghost" size="sm" onClick={(e) => handleDeleteClass(c.id, e)} className="text-slate-500 hover:text-rose-500">

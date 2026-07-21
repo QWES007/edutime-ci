@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Home, Plus, Trash2, FileSpreadsheet, Upload, RotateCcw, Edit2 } from "lucide-react";
+import { Home, Plus, Trash2, FileSpreadsheet, Upload, Edit2 } from "lucide-react";
 import * as XLSX from "xlsx";
 
 interface Room {
@@ -36,29 +36,39 @@ export default function RoomsPage() {
   const [capacity, setCapacity] = useState(50);
   const [insertMode, setInsertMode] = useState<"manual" | "excel">("manual");
   const [isMounted, setIsMounted] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const loadRooms = async () => {
+    let loaded: Room[] = [];
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.from("rooms").select("*");
+        if (!error && data && data.length > 0) {
+          loaded = data.map((r: any) => ({
+            id: r.id,
+            name: r.name,
+            type: r.type || "Standard",
+            capacity: Number(r.capacity || 50),
+          }));
+        }
+      } catch (err) {
+        console.error("Erreur chargement salles :", err);
+      }
+    }
+
+    if (loaded.length === 0 && typeof window !== "undefined") {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        try { loaded = JSON.parse(saved); } catch (e) { console.error(e); }
+      }
+    }
+
+    setRooms(loaded);
+  };
 
   useEffect(() => {
     setIsMounted(true);
-    const syncAndLoadRooms = async () => {
-      let localRooms: Room[] = [];
-      const savedLocal = typeof window !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null;
-      if (savedLocal) {
-        try { localRooms = JSON.parse(savedLocal); } catch (e) { console.error(e); }
-      }
-
-      if (supabase) {
-        try {
-          const { data: remoteRooms } = await supabase.from("rooms").select("*");
-          if (remoteRooms && remoteRooms.length > 0) {
-            setRooms(remoteRooms);
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(remoteRooms));
-            return;
-          }
-        } catch (err) { console.error("Erreur Supabase Rooms :", err); }
-      }
-      setRooms(localRooms);
-    };
-    syncAndLoadRooms();
+    loadRooms();
   }, []);
 
   const handleSelectRoomForEdit = (room: Room) => {
@@ -80,44 +90,36 @@ export default function RoomsPage() {
     e.preventDefault();
     if (!roomName.trim()) return;
 
-    if (editingId) {
-      // Modification
-      const updatedRooms = rooms.map((r) =>
-        r.id === editingId ? { ...r, name: roomName.trim(), type: roomType, capacity: parseSafeNumber(capacity, 50) } : r
-      );
-      setRooms(updatedRooms);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedRooms));
+    setIsSaving(true);
+    const targetId = editingId || crypto.randomUUID();
 
-      if (supabase) {
-        await supabase.from("rooms").update({
-          name: roomName.trim(),
-          type: roomType.toLowerCase(),
-          capacity: parseSafeNumber(capacity, 50)
-        }).eq("id", editingId);
-      }
-      handleCancelEdit();
-    } else {
-      // Ajout Nouveau
-      const newRoom: Room = {
-        id: crypto.randomUUID(),
-        name: roomName.trim(),
-        type: roomType,
-        capacity: parseSafeNumber(capacity, 50),
-      };
-      const updated = [newRoom, ...rooms];
-      setRooms(updated);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    const payload = {
+      id: targetId,
+      name: roomName.trim(),
+      type: roomType.toLowerCase(),
+      capacity: parseSafeNumber(capacity, 50),
+    };
 
-      if (supabase) {
-        await supabase.from("rooms").insert([{
-          id: newRoom.id,
-          name: newRoom.name,
-          type: newRoom.type.toLowerCase(),
-          capacity: newRoom.capacity,
-        }]);
+    // Mise à jour locale immédiate
+    const updated = editingId
+      ? rooms.map((r) => (r.id === editingId ? { ...r, name: payload.name, type: payload.type, capacity: payload.capacity } : r))
+      : [{ id: payload.id, name: payload.name, type: payload.type, capacity: payload.capacity }, ...rooms];
+
+    setRooms(updated);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+
+    // Upsert sécurisé dans Supabase
+    if (supabase) {
+      const { error } = await supabase.from("rooms").upsert(payload);
+      if (error) {
+        alert(`Erreur Supabase lors de la mise à jour de la salle : ${error.message}`);
+      } else {
+        await loadRooms();
       }
-      setRoomName("");
     }
+
+    setIsSaving(false);
+    handleCancelEdit();
   };
 
   const handleExcelImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -138,9 +140,9 @@ export default function RoomsPage() {
         data.forEach((row) => {
           const keys = Object.keys(row);
           if (keys.length === 0) return;
-          const nameKey = keys.find(k => /salle|nom|local/i.test(k)) || keys[0];
-          const typeKey = keys.find(k => /type|cat/i.test(k));
-          const capKey = keys.find(k => /capa|place|effect/i.test(k));
+          const nameKey = keys.find((k) => /salle|nom|local/i.test(k)) || keys[0];
+          const typeKey = keys.find((k) => /type|cat/i.test(k));
+          const capKey = keys.find((k) => /capa|place|effect/i.test(k));
 
           const rawName = row[nameKey];
           const rawType = typeKey ? row[typeKey] : "Standard";
@@ -159,14 +161,13 @@ export default function RoomsPage() {
 
         if (importedRooms.length === 0) return alert("Aucune donnée lue.");
 
-        const merged = [...importedRooms, ...rooms];
-        setRooms(merged);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
-
         if (supabase) {
-          const { error } = await supabase.from("rooms").insert(supabasePayloads);
-          if (error) alert(`Erreur : ${error.message}`);
-          else alert(`${importedRooms.length} salle(s) insérée(s) !`);
+          const { error } = await supabase.from("rooms").upsert(supabasePayloads);
+          if (error) alert(`Erreur import : ${error.message}`);
+          else {
+            await loadRooms();
+            alert(`${importedRooms.length} salle(s) insérée(s) / mises à jour !`);
+          }
         }
         setInsertMode("manual");
       } catch (err: any) { alert(`Erreur : ${err.message}`); }
@@ -183,6 +184,7 @@ export default function RoomsPage() {
 
     if (supabase) {
       await supabase.from("rooms").delete().eq("id", id);
+      await loadRooms();
     }
   };
 
@@ -190,14 +192,14 @@ export default function RoomsPage() {
 
   return (
     <div className="flex-1 space-y-6 p-8 pt-6">
-      <DashboardHeader title="Salles Physiques" description="Cliquez sur une salle pour la modifier ou ajuster sa capacité." />
+      <DashboardHeader title="Salles Physiques" description="Cliquez sur une salle pour modifier son nom, son type ou sa capacité." />
 
       <div className="grid gap-6 md:grid-cols-3">
         <Card className="shadow-sm">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between border-b pb-2">
               <span className="text-sm font-bold text-slate-700">
-                {editingId ? "Modifier la Salle" : "Locaux"}
+                {editingId ? "Modifier la Salle" : "Saisie Salle"}
               </span>
               <div className="flex gap-1 bg-muted p-0.5 rounded-lg text-xs">
                 <button
@@ -230,6 +232,7 @@ export default function RoomsPage() {
                     <option value="Standard">Salle Standard</option>
                     <option value="Laboratoire">Laboratoire / Sciences</option>
                     <option value="Informatique">Salle Informatique</option>
+                    <option value="Sports">Terrain de Sport / EPS</option>
                   </select>
                 </div>
                 <div className="space-y-2">
@@ -237,8 +240,8 @@ export default function RoomsPage() {
                   <Input id="capacity" type="number" value={capacity} onChange={(e) => setCapacity(Number(e.target.value))} required />
                 </div>
                 <div className="flex gap-2">
-                  <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700">
-                    {editingId ? "Mettre à jour" : "Enregistrer le local"}
+                  <Button type="submit" disabled={isSaving} className="w-full bg-emerald-600 hover:bg-emerald-700">
+                    {isSaving ? "Enregistrement..." : editingId ? "Mettre à jour la salle" : "Enregistrer le local"}
                   </Button>
                   {editingId && (
                     <Button type="button" variant="outline" onClick={handleCancelEdit}>
@@ -276,7 +279,7 @@ export default function RoomsPage() {
                     <div>
                       <h4 className="font-bold text-sm flex items-center gap-2">
                         {r.name}
-                        <Edit2 className="size-3 text-slate-400 opacity-0 group-hover:opacity-100" />
+                        <Edit2 className="size-3 text-slate-400 opacity-60" />
                       </h4>
                       <p className="text-[11px] text-muted-foreground font-medium">{r.type} · Max {r.capacity} places</p>
                     </div>

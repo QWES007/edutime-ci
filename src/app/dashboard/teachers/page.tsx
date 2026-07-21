@@ -7,8 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Users, Plus, Trash2, RotateCcw, FileSpreadsheet, Upload, Edit2, Calendar } from "lucide-react";
-import * as XLSX from "xlsx";
+import { Users, Trash2, Edit2, Calendar } from "lucide-react";
 
 interface Teacher {
   id: string;
@@ -31,40 +30,31 @@ export default function TeachersPage() {
   const [maxHours, setMaxHours] = useState(18);
   const [selectedUnavailabilities, setSelectedUnavailabilities] = useState<string[]>([]);
   const [selectedTeacherId, setSelectedTeacherId] = useState<string | null>(null);
-  const [insertMode, setInsertMode] = useState<"manual" | "excel">("manual");
   const [isMounted, setIsMounted] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const loadTeachers = async () => {
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.from("teachers").select("*");
+        if (!error && data && data.length > 0) {
+          const mapped = data.map((t: any) => ({
+            id: t.id,
+            name: t.name,
+            subjects: Array.isArray(t.subjects) ? t.subjects : [t.subject || "MATHS"],
+            maxHoursPerWeek: Number(t.max_hours_per_week || t.weekly_hours || 18),
+            unavailabilities: Object.keys(t.unavailabilities || {}),
+          }));
+          setTeachers(mapped);
+          if (mapped.length > 0 && !selectedTeacherId) setSelectedTeacherId(mapped[0].id);
+        }
+      } catch (err) { console.error(err); }
+    }
+  };
 
   useEffect(() => {
     setIsMounted(true);
-    const syncAndLoadTeachers = async () => {
-      let localTeachers: Teacher[] = [];
-      const savedLocal = typeof window !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null;
-      if (savedLocal) {
-        try { localTeachers = JSON.parse(savedLocal); } catch (e) { console.error(e); }
-      }
-
-      if (supabase) {
-        try {
-          const { data: remoteTeachers } = await supabase.from("teachers").select("*");
-          if (remoteTeachers && remoteTeachers.length > 0) {
-            const mapped = remoteTeachers.map((t: any) => ({
-              id: t.id,
-              name: t.name,
-              subjects: Array.isArray(t.subjects) ? t.subjects : [t.subject || "MATHS"],
-              maxHoursPerWeek: Number(t.max_hours_per_week || t.weekly_hours || 18),
-              unavailabilities: Object.keys(t.unavailabilities || {}),
-            }));
-            setTeachers(mapped);
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(mapped));
-            if (mapped.length > 0) setSelectedTeacherId(mapped[0].id);
-            return;
-          }
-        } catch (err) { console.error(err); }
-      }
-      setTeachers(localTeachers);
-      if (localTeachers.length > 0) setSelectedTeacherId(localTeachers[0].id);
-    };
-    syncAndLoadTeachers();
+    loadTeachers();
   }, []);
 
   const handleSelectForEdit = (teacher: Teacher) => {
@@ -74,7 +64,6 @@ export default function TeachersPage() {
     setSubjects(teacher.subjects.join(", "));
     setMaxHours(teacher.maxHoursPerWeek);
     setSelectedUnavailabilities(teacher.unavailabilities || []);
-    setInsertMode("manual");
   };
 
   const handleCancelEdit = () => {
@@ -89,60 +78,33 @@ export default function TeachersPage() {
     e.preventDefault();
     if (!name.trim()) return;
 
+    setIsSaving(true);
     const parsedSubjects = subjects.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+    const targetId = editingId || crypto.randomUUID();
 
-    if (editingId) {
-      const updated = teachers.map((t) =>
-        t.id === editingId
-          ? { ...t, name: name.trim(), subjects: parsedSubjects, maxHoursPerWeek: Number(maxHours), unavailabilities: selectedUnavailabilities }
-          : t
-      );
-      setTeachers(updated);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    const unavailObj: Record<string, boolean> = {};
+    selectedUnavailabilities.forEach((u) => { unavailObj[u] = true; });
 
-      if (supabase) {
-        const unavailObj: Record<string, boolean> = {};
-        selectedUnavailabilities.forEach((u) => { unavailObj[u] = true; });
+    const payload = {
+      id: targetId,
+      name: name.trim(),
+      subjects: parsedSubjects,
+      subject: parsedSubjects[0] || "MATHS",
+      max_hours_per_week: Number(maxHours),
+      unavailabilities: unavailObj,
+    };
 
-        await supabase.from("teachers").update({
-          name: name.trim(),
-          subjects: parsedSubjects,
-          subject: parsedSubjects[0] || "MATHS",
-          max_hours_per_week: Number(maxHours),
-          unavailabilities: unavailObj,
-        }).eq("id", editingId);
+    if (supabase) {
+      const { error } = await supabase.from("teachers").upsert(payload);
+      if (error) {
+        alert(`Erreur Supabase Enseignant : ${error.message}`);
+      } else {
+        await loadTeachers();
       }
-      handleCancelEdit();
-    } else {
-      const newId = crypto.randomUUID();
-      const newTeacher: Teacher = {
-        id: newId,
-        name: name.trim(),
-        subjects: parsedSubjects,
-        maxHoursPerWeek: Number(maxHours),
-        unavailabilities: selectedUnavailabilities,
-      };
-      const updated = [newTeacher, ...teachers];
-      setTeachers(updated);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      setSelectedTeacherId(newId);
-
-      if (supabase) {
-        const unavailObj: Record<string, boolean> = {};
-        selectedUnavailabilities.forEach((u) => { unavailObj[u] = true; });
-
-        await supabase.from("teachers").insert([{
-          id: newId,
-          name: newTeacher.name,
-          subjects: newTeacher.subjects,
-          subject: newTeacher.subjects[0] || "MATHS",
-          max_hours_per_week: newTeacher.maxHoursPerWeek,
-          unavailabilities: unavailObj,
-        }]);
-      }
-      setName("");
-      setSubjects("");
     }
+
+    setIsSaving(false);
+    handleCancelEdit();
   };
 
   const toggleUnavailability = async (daySlotKey: string) => {
@@ -156,102 +118,21 @@ export default function TeachersPage() {
       ? currentList.filter((k) => k !== daySlotKey)
       : [...currentList, daySlotKey];
 
-    const updatedTeachers = teachers.map((t) =>
-      t.id === selectedTeacherId ? { ...t, unavailabilities: updatedList } : t
-    );
-
-    setTeachers(updatedTeachers);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedTeachers));
-
-    if (editingId === selectedTeacherId) {
-      setSelectedUnavailabilities(updatedList);
-    }
+    const unavailObj: Record<string, boolean> = {};
+    updatedList.forEach((u) => { unavailObj[u] = true; });
 
     if (supabase) {
-      const unavailObj: Record<string, boolean> = {};
-      updatedList.forEach((u) => { unavailObj[u] = true; });
       await supabase.from("teachers").update({ unavailabilities: unavailObj }).eq("id", selectedTeacherId);
+      await loadTeachers();
     }
   };
 
   const handleDeleteTeacher = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const filtered = teachers.filter((t) => t.id !== id);
-    setTeachers(filtered);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
-    if (editingId === id) handleCancelEdit();
-    if (selectedTeacherId === id && filtered.length > 0) setSelectedTeacherId(filtered[0].id);
-
     if (supabase) {
       await supabase.from("teachers").delete().eq("id", id);
+      await loadTeachers();
     }
-  };
-
-  const handleExcelImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async (evt) => {
-      try {
-        const buffer = evt.target?.result as ArrayBuffer;
-        const wb = XLSX.read(buffer, { type: "array" });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const data = XLSX.utils.sheet_to_json(ws) as any[];
-
-        const imported: Teacher[] = [];
-        const dbPayloads: any[] = [];
-
-        data.forEach((row) => {
-          const keys = Object.keys(row);
-          if (keys.length === 0) return;
-
-          const nameKey = keys.find((k) => /nom|prof|enseignant/i.test(k)) || keys[0];
-          const subjKey = keys.find((k) => /matiere|disc|sub/i.test(k));
-          const hoursKey = keys.find((k) => /heure|vol|quota/i.test(k));
-
-          const rawName = row[nameKey];
-          const rawSubj = subjKey ? String(row[subjKey]) : "MATHS";
-          const rawHours = hoursKey ? Number(row[hoursKey]) || 18 : 18;
-
-          if (rawName) {
-            const id = crypto.randomUUID();
-            const cleanSubjs = rawSubj.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
-
-            imported.push({
-              id,
-              name: String(rawName).trim(),
-              subjects: cleanSubjs,
-              maxHoursPerWeek: rawHours,
-              unavailabilities: [],
-            });
-
-            dbPayloads.push({
-              id,
-              name: String(rawName).trim(),
-              subjects: cleanSubjs,
-              subject: cleanSubjs[0] || "MATHS",
-              max_hours_per_week: rawHours,
-              unavailabilities: {},
-            });
-          }
-        });
-
-        if (imported.length === 0) return alert("Aucune donnée lue.");
-
-        const merged = [...imported, ...teachers];
-        setTeachers(merged);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
-
-        if (supabase) {
-          const { error } = await supabase.from("teachers").insert(dbPayloads);
-          if (error) alert(`Erreur : ${error.message}`);
-          else alert(`${imported.length} enseignant(s) importé(s) !`);
-        }
-        setInsertMode("manual");
-      } catch (err: any) { alert(`Erreur : ${err.message}`); }
-    };
-    reader.readAsArrayBuffer(file);
   };
 
   if (!isMounted) return <div className="p-8 text-xs text-slate-400">Chargement...</div>;
@@ -266,90 +147,62 @@ export default function TeachersPage() {
       />
 
       <div className="grid gap-6 md:grid-cols-12">
-        {/* Formulaire Saisie */}
         <div className="md:col-span-4 space-y-6">
           <Card className="border-slate-800 bg-slate-900/50">
             <CardHeader className="pb-3 border-b border-slate-800">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-bold text-white flex items-center gap-2">
-                  <Users className="size-4 text-emerald-400" />
-                  {editingId ? "Modifier l'enseignant" : "Saisie Enseignant"}
-                </span>
-                <div className="flex gap-1 bg-slate-950 p-1 rounded-lg text-xs">
-                  <button
-                    type="button"
-                    onClick={() => setInsertMode("excel")}
-                    className={`px-2 py-1 rounded-md font-bold ${insertMode === "excel" ? "bg-emerald-600 text-white" : "text-slate-400"}`}
-                  >
-                    <FileSpreadsheet className="inline size-3 mr-1" /> Excel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setInsertMode("manual")}
-                    className={`px-2 py-1 rounded-md font-bold ${insertMode === "manual" ? "bg-emerald-600 text-white" : "text-slate-400"}`}
-                  >
-                    <Plus className="inline size-3 mr-1" /> Manuel
-                  </button>
-                </div>
-              </div>
+              <span className="text-sm font-bold text-white flex items-center gap-2">
+                <Users className="size-4 text-emerald-400" />
+                {editingId ? "Modifier l'enseignant" : "Saisie Enseignant"}
+              </span>
             </CardHeader>
             <CardContent className="pt-4">
-              {insertMode === "manual" ? (
-                <form onSubmit={handleSaveTeacher} className="space-y-4">
+              <form onSubmit={handleSaveTeacher} className="space-y-4">
+                <div>
+                  <Label className="text-xs text-slate-300 font-semibold">Nom complet</Label>
+                  <Input
+                    placeholder="Ex: M. GOMEZ Paul"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="mt-1 bg-slate-950 border-slate-800 text-xs text-white"
+                    required
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label className="text-xs text-slate-300 font-semibold">Nom complet</Label>
+                    <Label className="text-xs text-slate-300 font-semibold">Matières (virgule)</Label>
                     <Input
-                      placeholder="Ex: M. GOMEZ Paul"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
+                      placeholder="Ex: MATHS, PC"
+                      value={subjects}
+                      onChange={(e) => setSubjects(e.target.value)}
                       className="mt-1 bg-slate-950 border-slate-800 text-xs text-white"
                       required
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <Label className="text-xs text-slate-300 font-semibold">Matières (virgule)</Label>
-                      <Input
-                        placeholder="Ex: MATHS, PC"
-                        value={subjects}
-                        onChange={(e) => setSubjects(e.target.value)}
-                        className="mt-1 bg-slate-950 border-slate-800 text-xs text-white"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-xs text-slate-300 font-semibold">Quota d&apos;heures</Label>
-                      <Input
-                        type="number"
-                        value={maxHours}
-                        onChange={(e) => setMaxHours(Number(e.target.value))}
-                        className="mt-1 bg-slate-950 border-slate-800 text-xs text-white"
-                        required
-                      />
-                    </div>
+                  <div>
+                    <Label className="text-xs text-slate-300 font-semibold">Quota d&apos;heures</Label>
+                    <Input
+                      type="number"
+                      value={maxHours}
+                      onChange={(e) => setMaxHours(Number(e.target.value))}
+                      className="mt-1 bg-slate-950 border-slate-800 text-xs text-white"
+                      required
+                    />
                   </div>
-                  <div className="flex gap-2">
-                    <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs h-9">
-                      {editingId ? "Mettre à jour" : "Enregistrer l'enseignant"}
-                    </Button>
-                    {editingId && (
-                      <Button type="button" variant="outline" onClick={handleCancelEdit} className="text-xs h-9 border-slate-800 text-slate-300">
-                        Annuler
-                      </Button>
-                    )}
-                  </div>
-                </form>
-              ) : (
-                <div className="border-2 border-dashed border-slate-800 rounded-xl p-6 text-center hover:bg-slate-800/20 transition-all relative cursor-pointer">
-                  <input type="file" accept=".xlsx, .xls, .csv" onChange={handleExcelImport} className="absolute inset-0 opacity-0 cursor-pointer" />
-                  <Upload className="size-8 mx-auto text-emerald-400 mb-2" />
-                  <p className="text-xs font-bold text-white">Importer le fichier Excel</p>
                 </div>
-              )}
+                <div className="flex gap-2">
+                  <Button type="submit" disabled={isSaving} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs h-9">
+                    {isSaving ? "Enregistrement..." : editingId ? "Mettre à jour" : "Enregistrer l'enseignant"}
+                  </Button>
+                  {editingId && (
+                    <Button type="button" variant="outline" onClick={handleCancelEdit} className="text-xs h-9 border-slate-800 text-slate-300">
+                      Annuler
+                    </Button>
+                  )}
+                </div>
+              </form>
             </CardContent>
           </Card>
 
-          {/* Liste des profs cliquables */}
           <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
             {teachers.map((t) => {
               const isSelected = selectedTeacherId === t.id;
@@ -381,7 +234,6 @@ export default function TeachersPage() {
           </div>
         </div>
 
-        {/* Grille des Indisponibilités */}
         <div className="md:col-span-8">
           <Card className="border-slate-800 bg-slate-900/50 p-5">
             <div className="flex items-center justify-between mb-4 border-b border-slate-800 pb-3">
@@ -391,12 +243,12 @@ export default function TeachersPage() {
                   Grille des Disponibilités
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Pour : <span className="text-emerald-400 font-bold">{activeTeacher ? activeTeacher.name : "Aucun enseignant sélectionné"}</span>
+                  Pour : <span className="text-emerald-400 font-bold">{activeTeacher ? activeTeacher.name : "Aucun enseignant"}</span>
                 </p>
               </div>
             </div>
 
-            {activeTeacher ? (
+            {activeTeacher && (
               <table className="w-full text-center border-collapse text-xs">
                 <thead>
                   <tr className="border-b border-slate-800 bg-slate-950 text-slate-300 font-bold">
@@ -417,11 +269,7 @@ export default function TeachersPage() {
                         const isUnavailable = (activeTeacher.unavailabilities || []).includes(key);
 
                         return (
-                          <td
-                            key={day}
-                            onClick={() => toggleUnavailability(key)}
-                            className="p-1 cursor-pointer"
-                          >
+                          <td key={day} onClick={() => toggleUnavailability(key)} className="p-1 cursor-pointer">
                             <div
                               className={`py-2 rounded-md font-bold text-[10px] transition-all border ${
                                 isUnavailable
@@ -438,10 +286,6 @@ export default function TeachersPage() {
                   ))}
                 </tbody>
               </table>
-            ) : (
-              <div className="p-8 text-center text-xs text-slate-500">
-                Sélectionnez un enseignant dans la liste pour configurer ses créneaux.
-              </div>
             )}
           </Card>
         </div>
