@@ -64,8 +64,18 @@ export default function ClassesPage() {
             double_vacation: c.double_vacation || "none",
           }));
         }
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        console.error("Erreur chargement classes Supabase :", e);
+      }
     }
+
+    if (loaded.length === 0 && typeof window !== "undefined") {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        try { loaded = JSON.parse(saved); } catch (e) { console.error(e); }
+      }
+    }
+
     setClasses(loaded);
   };
 
@@ -103,7 +113,7 @@ export default function ClassesPage() {
     setIsSaving(true);
     const targetId = editingId || crypto.randomUUID();
 
-    const payload = {
+    const localPayload = {
       id: targetId,
       name: className.trim(),
       level,
@@ -112,21 +122,40 @@ export default function ClassesPage() {
       subject_hours: subjectHours,
     };
 
-    // Mise à jour locale immédiate
+    // Mise à jour locale immédiate (pour l'affichage fluide)
     const updated = editingId
-      ? classes.map((c) => (c.id === editingId ? payload : c))
-      : [payload, ...classes];
+      ? classes.map((c) => (c.id === editingId ? localPayload : c))
+      : [localPayload, ...classes];
 
     setClasses(updated);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 
-    // Sauvegarde fiable dans Supabase via upsert
+    // Sauvegarde Supabase
     if (supabase) {
-      const { error } = await supabase.from("classgroups").upsert(payload);
-      if (error) {
-        alert(`Erreur Supabase lors de la mise à jour : ${error.message}`);
+      const dbPayload: any = {
+        id: targetId,
+        name: className.trim(),
+        level,
+        student_count: Number(studentCount),
+        subject_hours: subjectHours,
+        double_vacation: doubleVacation,
+      };
+
+      let { error } = await supabase.from("classgroups").upsert(dbPayload);
+
+      // Si la colonne double_vacation n'existe pas encore dans SQL, on réessaie sans elle
+      if (error && error.message.includes("double_vacation")) {
+        delete dbPayload.double_vacation;
+        const retry = await supabase.from("classgroups").upsert(dbPayload);
+        if (retry.error) {
+          alert(`Erreur Supabase : ${retry.error.message}`);
+        } else {
+          await loadClasses();
+        }
+      } else if (error) {
+        alert(`Erreur Supabase : ${error.message}`);
       } else {
-        await loadClasses(); // Synchronisation propre
+        await loadClasses();
       }
     }
 
@@ -143,6 +172,7 @@ export default function ClassesPage() {
 
     if (supabase) {
       await supabase.from("classgroups").delete().eq("id", id);
+      await loadClasses();
     }
   };
 
