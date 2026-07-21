@@ -41,6 +41,15 @@ const SLOTS = [
 
 const STORAGE_KEY = "edutime_teachers_saas_v1";
 
+// Nettoyeur de nombres sécurisé (ex: "18h" -> 18)
+const parseSafeNumber = (val: any, fallback: number): number => {
+  if (typeof val === "number" && !isNaN(val)) return val;
+  if (!val) return fallback;
+  const cleaned = String(val).replace(/[^0-9]/g, "");
+  const parsed = parseInt(cleaned, 10);
+  return isNaN(parsed) ? fallback : parsed;
+};
+
 export default function TeachersPage() {
   const supabase = createClient();
   const [teachers, setTeachers] = useState<Teacher[]>([]);
@@ -78,7 +87,7 @@ export default function TeachersPage() {
               id: t.id,
               name: t.name,
               subject: Array.isArray(t.subjects) ? t.subjects.join(", ") : (t.subject || "MATHS"),
-              weekly_hours: t.max_hours_per_week || t.weekly_hours || 18,
+              weekly_hours: parseSafeNumber(t.max_hours_per_week || t.weekly_hours, 18),
               unavailabilities: t.unavailabilities || {},
             }));
 
@@ -93,7 +102,7 @@ export default function TeachersPage() {
               id: t.id && t.id.length === 36 ? t.id : crypto.randomUUID(),
               name: t.name,
               subjects: [t.subject],
-              max_hours_per_week: Number(t.weekly_hours) || 18,
+              max_hours_per_week: parseSafeNumber(t.weekly_hours, 18),
             }));
 
             const { error: insertError } = await supabase.from("teachers").insert(formattedTeachers);
@@ -126,7 +135,7 @@ export default function TeachersPage() {
       id: newTeacherId,
       name: name.trim(),
       subject: subject.toUpperCase().trim(),
-      weekly_hours: Number(weeklyHours),
+      weekly_hours: parseSafeNumber(weeklyHours, 18),
       unavailabilities: {},
     };
 
@@ -140,13 +149,11 @@ export default function TeachersPage() {
         id: newTeacherId,
         name: name.trim(),
         subjects: [subject.toUpperCase().trim()],
-        max_hours_per_week: Number(weeklyHours),
+        max_hours_per_week: parseSafeNumber(weeklyHours, 18),
       };
 
       const { error } = await supabase.from("teachers").insert([payloadSupabase]);
-      if (error) {
-        console.error("Erreur d'insertion Supabase Teachers :", error.message);
-      }
+      if (error) console.error("Erreur Supabase ajout enseignant :", error.message);
     }
 
     setName("");
@@ -170,7 +177,6 @@ export default function TeachersPage() {
         const supabasePayloads: any[] = [];
 
         data.forEach((row) => {
-          // Détection universelle des en-têtes Excel pour les profs
           const rawName = row.Nom || row.NOM || row.Teacher || row.TEACHER || row.Enseignant || row.ENSEIGNANT || row.Prof || row.PROF || row.Professeur || row.PROFESSEUR || row["Nom & Prénoms"] || row["Nom et Prenoms"];
           const rawSubject = row.Discipline || row.DISCIPLINE || row.Matiere || row.Matière || row.MATIERE || row.Subject || row.SUBJECT || "MATHS";
           const rawHours = row.Heures || row.HEURES || row.Volume || row.VOLUME || row.Hours || row.HOURS || 18;
@@ -179,7 +185,7 @@ export default function TeachersPage() {
             const id = crypto.randomUUID();
             const profName = String(rawName).trim();
             const subj = String(rawSubject).trim().toUpperCase();
-            const hours = Number(rawHours) || 18;
+            const hours = parseSafeNumber(rawHours, 18);
 
             importedTeachers.push({
               id,
@@ -199,7 +205,7 @@ export default function TeachersPage() {
         });
 
         if (importedTeachers.length === 0) {
-          alert("Aucun enseignant trouvé dans le fichier Excel. Vérifiez vos colonnes (ex: Nom, Discipline, Heures).");
+          alert("Aucun enseignant trouvé. Vérifiez que la colonne s'appelle bien 'Nom' ou 'Enseignant'.");
           return;
         }
 
@@ -211,15 +217,16 @@ export default function TeachersPage() {
         if (supabase) {
           const { error } = await supabase.from("teachers").insert(supabasePayloads);
           if (error) {
-            console.error("Erreur Import Excel Teachers Supabase :", error.message);
+            alert(`Erreur Supabase lors de l'import des enseignants : ${error.message}`);
+            console.error("Erreur Teachers Supabase :", error);
           } else {
-            console.log("Enseignants importés avec succès dans Supabase !");
+            alert(`${importedTeachers.length} enseignant(s) importé(s) et enregistré(s) dans Supabase !`);
           }
         }
 
         setInsertMode("manual");
-      } catch (err) {
-        console.error("Erreur lecture Excel Enseignants :", err);
+      } catch (err: any) {
+        alert(`Erreur de lecture du fichier Excel : ${err.message}`);
       }
     };
 

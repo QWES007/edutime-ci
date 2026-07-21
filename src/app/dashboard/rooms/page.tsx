@@ -19,6 +19,15 @@ interface Room {
 
 const STORAGE_KEY = "edutime_rooms_saas_v1";
 
+// Nettoyeur de nombres sécurisé (ex: "50 places" -> 50)
+const parseSafeNumber = (val: any, fallback: number): number => {
+  if (typeof val === "number" && !isNaN(val)) return val;
+  if (!val) return fallback;
+  const cleaned = String(val).replace(/[^0-9]/g, "");
+  const parsed = parseInt(cleaned, 10);
+  return isNaN(parsed) ? fallback : parsed;
+};
+
 export default function RoomsPage() {
   const supabase = createClient();
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -57,7 +66,7 @@ export default function RoomsPage() {
               id: r.id && r.id.length === 36 ? r.id : crypto.randomUUID(),
               name: r.name,
               type: r.type || "Standard",
-              capacity: Number(r.capacity) || 50,
+              capacity: parseSafeNumber(r.capacity, 50),
             }));
 
             const { error: insertError } = await supabase.from("rooms").insert(formattedRooms);
@@ -86,7 +95,7 @@ export default function RoomsPage() {
       id: crypto.randomUUID(),
       name: roomName.trim(),
       type: roomType,
-      capacity: Number(capacity),
+      capacity: parseSafeNumber(capacity, 50),
     };
 
     const updated = [newRoom, ...rooms];
@@ -94,12 +103,13 @@ export default function RoomsPage() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 
     if (supabase) {
-      await supabase.from("rooms").insert([{
+      const { error } = await supabase.from("rooms").insert([{
         id: newRoom.id,
         name: newRoom.name,
         type: newRoom.type,
         capacity: newRoom.capacity,
       }]);
+      if (error) console.error("Erreur ajout manuel room :", error.message);
     }
 
     setRoomName("");
@@ -118,25 +128,37 @@ export default function RoomsPage() {
         const data = XLSX.utils.sheet_to_json(ws) as any[];
 
         const importedRooms: Room[] = [];
+        const supabasePayloads: any[] = [];
 
         data.forEach((row) => {
-          // Détection automatique du nom de la salle
           const rawName = row.Salle || row.SALLE || row.Nom || row.NOM || row.Local || row.LOCAL || row["Nom de la salle"] || row["Nom salle"];
           const rawType = row.Type || row.TYPE || row.Categorie || row.CATEGORIE || "Standard";
           const rawCapacity = row.Capacite || row.Capacité || row.CAPACITE || row.Places || row.PLACES || row.Effectif || 50;
 
           if (rawName) {
+            const id = crypto.randomUUID();
+            const cleanName = String(rawName).trim();
+            const cleanType = String(rawType).trim();
+            const cleanCap = parseSafeNumber(rawCapacity, 50);
+
             importedRooms.push({
-              id: crypto.randomUUID(),
-              name: String(rawName).trim(),
-              type: String(rawType).trim(),
-              capacity: Number(rawCapacity) || 50,
+              id,
+              name: cleanName,
+              type: cleanType,
+              capacity: cleanCap,
+            });
+
+            supabasePayloads.push({
+              id,
+              name: cleanName,
+              type: cleanType,
+              capacity: cleanCap,
             });
           }
         });
 
         if (importedRooms.length === 0) {
-          alert("Aucune salle n'a pu être lue dans le fichier Excel. Vérifiez les en-têtes (ex: Salle, Type, Capacité).");
+          alert("Aucune salle lue. Vérifiez que la colonne s'appelle bien 'Salle' ou 'Nom'.");
           return;
         }
 
@@ -145,24 +167,18 @@ export default function RoomsPage() {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
 
         if (supabase) {
-          const payloadSupabase = importedRooms.map((r) => ({
-            id: r.id,
-            name: r.name,
-            type: r.type,
-            capacity: r.capacity,
-          }));
-
-          const { error } = await supabase.from("rooms").insert(payloadSupabase);
+          const { error } = await supabase.from("rooms").insert(supabasePayloads);
           if (error) {
-            console.error("Erreur d'insertion Supabase Rooms Excel :", error.message);
+            alert(`Erreur Supabase lors de l'import des salles : ${error.message}`);
+            console.error("Erreur Salles Supabase :", error);
           } else {
-            console.log("Salles importées enregistrées dans Supabase !");
+            alert(`${importedRooms.length} salle(s) importée(s) et enregistrée(s) dans Supabase !`);
           }
         }
 
         setInsertMode("manual");
-      } catch (err) {
-        console.error("Erreur lecture Excel Salles :", err);
+      } catch (err: any) {
+        alert(`Erreur de lecture du fichier Excel : ${err.message}`);
       }
     };
 
