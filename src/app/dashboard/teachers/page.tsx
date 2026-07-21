@@ -41,7 +41,6 @@ const SLOTS = [
 
 const STORAGE_KEY = "edutime_teachers_saas_v1";
 
-// Nettoyeur de nombres sécurisé (ex: "18h" -> 18)
 const parseSafeNumber = (val: any, fallback: number): number => {
   if (typeof val === "number" && !isNaN(val)) return val;
   if (!val) return fallback;
@@ -152,8 +151,7 @@ export default function TeachersPage() {
         max_hours_per_week: parseSafeNumber(weeklyHours, 18),
       };
 
-      const { error } = await supabase.from("teachers").insert([payloadSupabase]);
-      if (error) console.error("Erreur Supabase ajout enseignant :", error.message);
+      await supabase.from("teachers").insert([payloadSupabase]);
     }
 
     setName("");
@@ -177,14 +175,22 @@ export default function TeachersPage() {
         const supabasePayloads: any[] = [];
 
         data.forEach((row) => {
-          const rawName = row.Nom || row.NOM || row.Teacher || row.TEACHER || row.Enseignant || row.ENSEIGNANT || row.Prof || row.PROF || row.Professeur || row.PROFESSEUR || row["Nom & Prénoms"] || row["Nom et Prenoms"];
-          const rawSubject = row.Discipline || row.DISCIPLINE || row.Matiere || row.Matière || row.MATIERE || row.Subject || row.SUBJECT || "MATHS";
-          const rawHours = row.Heures || row.HEURES || row.Volume || row.VOLUME || row.Hours || row.HOURS || 18;
+          const keys = Object.keys(row);
+          if (keys.length === 0) return;
 
-          if (rawName) {
+          // Détection automatique : 1ère colonne = Nom du prof, 2ème = Discipline, 3ème = Heures
+          const nameKey = keys.find(k => /nom|prof|enseignant|teacher/i.test(k)) || keys[0];
+          const subjKey = keys.find(k => /disc|mati|subj/i.test(k)) || keys[1];
+          const hoursKey = keys.find(k => /heur|volum|hour/i.test(k)) || keys[2];
+
+          const rawName = row[nameKey];
+          const rawSubject = subjKey ? row[subjKey] : "MATHS";
+          const rawHours = hoursKey ? row[hoursKey] : 18;
+
+          if (rawName && String(rawName).trim() !== "") {
             const id = crypto.randomUUID();
             const profName = String(rawName).trim();
-            const subj = String(rawSubject).trim().toUpperCase();
+            const subj = String(rawSubject || "MATHS").trim().toUpperCase();
             const hours = parseSafeNumber(rawHours, 18);
 
             importedTeachers.push({
@@ -205,7 +211,7 @@ export default function TeachersPage() {
         });
 
         if (importedTeachers.length === 0) {
-          alert("Aucun enseignant trouvé. Vérifiez que la colonne s'appelle bien 'Nom' ou 'Enseignant'.");
+          alert("Aucune donnée d'enseignant lue dans le fichier.");
           return;
         }
 
@@ -217,16 +223,15 @@ export default function TeachersPage() {
         if (supabase) {
           const { error } = await supabase.from("teachers").insert(supabasePayloads);
           if (error) {
-            alert(`Erreur Supabase lors de l'import des enseignants : ${error.message}`);
-            console.error("Erreur Teachers Supabase :", error);
+            alert(`Erreur Supabase : ${error.message}`);
           } else {
-            alert(`${importedTeachers.length} enseignant(s) importé(s) et enregistré(s) dans Supabase !`);
+            alert(`${importedTeachers.length} enseignant(s) inséré(s) dans Supabase !`);
           }
         }
 
         setInsertMode("manual");
       } catch (err: any) {
-        alert(`Erreur de lecture du fichier Excel : ${err.message}`);
+        alert(`Erreur de lecture : ${err.message}`);
       }
     };
 
@@ -294,7 +299,7 @@ export default function TeachersPage() {
         <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
           <Users className="size-6 text-emerald-600" /> Enseignants & Dispos
         </h1>
-        <p className="text-xs text-slate-400">Chargement de l&apos;interface...</p>
+        <p className="text-xs text-slate-400">Chargement...</p>
       </div>
     );
   }

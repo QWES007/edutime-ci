@@ -19,7 +19,6 @@ interface Room {
 
 const STORAGE_KEY = "edutime_rooms_saas_v1";
 
-// Nettoyeur de nombres sécurisé (ex: "50 places" -> 50)
 const parseSafeNumber = (val: any, fallback: number): number => {
   if (typeof val === "number" && !isNaN(val)) return val;
   if (!val) return fallback;
@@ -65,14 +64,14 @@ export default function RoomsPage() {
             const formattedRooms = localRooms.map((r) => ({
               id: r.id && r.id.length === 36 ? r.id : crypto.randomUUID(),
               name: r.name,
-              type: r.type || "Standard",
+              type: (r.type || "Standard").toLowerCase(),
               capacity: parseSafeNumber(r.capacity, 50),
             }));
 
             const { error: insertError } = await supabase.from("rooms").insert(formattedRooms);
             if (!insertError) {
-              setRooms(formattedRooms);
-              localStorage.setItem(STORAGE_KEY, JSON.stringify(formattedRooms));
+              setRooms(localRooms);
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(localRooms));
               return;
             }
           }
@@ -103,13 +102,12 @@ export default function RoomsPage() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 
     if (supabase) {
-      const { error } = await supabase.from("rooms").insert([{
+      await supabase.from("rooms").insert([{
         id: newRoom.id,
         name: newRoom.name,
-        type: newRoom.type,
+        type: newRoom.type.toLowerCase(),
         capacity: newRoom.capacity,
       }]);
-      if (error) console.error("Erreur ajout manuel room :", error.message);
     }
 
     setRoomName("");
@@ -131,9 +129,15 @@ export default function RoomsPage() {
         const supabasePayloads: any[] = [];
 
         data.forEach((row) => {
-          const rawName = row.Salle || row.SALLE || row.Nom || row.NOM || row.Local || row.LOCAL || row["Nom de la salle"] || row["Nom salle"];
-          const rawType = row.Type || row.TYPE || row.Categorie || row.CATEGORIE || "Standard";
-          const rawCapacity = row.Capacite || row.Capacité || row.CAPACITE || row.Places || row.PLACES || row.Effectif || 50;
+          // Lecture flexible de n'importe quelle colonne de salle
+          const keys = Object.keys(row);
+          const nameKey = keys.find(k => /salle|nom|local/i.test(k)) || keys[0];
+          const typeKey = keys.find(k => /type|cat/i.test(k));
+          const capKey = keys.find(k => /capa|place|effect/i.test(k));
+
+          const rawName = row[nameKey];
+          const rawType = typeKey ? row[typeKey] : "Standard";
+          const rawCapacity = capKey ? row[capKey] : 50;
 
           if (rawName) {
             const id = crypto.randomUUID();
@@ -151,14 +155,14 @@ export default function RoomsPage() {
             supabasePayloads.push({
               id,
               name: cleanName,
-              type: cleanType,
+              type: cleanType.toLowerCase(),
               capacity: cleanCap,
             });
           }
         });
 
         if (importedRooms.length === 0) {
-          alert("Aucune salle lue. Vérifiez que la colonne s'appelle bien 'Salle' ou 'Nom'.");
+          alert("Fichier vide ou illisible.");
           return;
         }
 
@@ -169,16 +173,15 @@ export default function RoomsPage() {
         if (supabase) {
           const { error } = await supabase.from("rooms").insert(supabasePayloads);
           if (error) {
-            alert(`Erreur Supabase lors de l'import des salles : ${error.message}`);
-            console.error("Erreur Salles Supabase :", error);
+            alert(`Erreur Supabase : ${error.message}`);
           } else {
-            alert(`${importedRooms.length} salle(s) importée(s) et enregistrée(s) dans Supabase !`);
+            alert(`${importedRooms.length} salle(s) insérée(s) dans Supabase !`);
           }
         }
 
         setInsertMode("manual");
       } catch (err: any) {
-        alert(`Erreur de lecture du fichier Excel : ${err.message}`);
+        alert(`Erreur lecture fichier : ${err.message}`);
       }
     };
 
@@ -211,8 +214,8 @@ export default function RoomsPage() {
   if (!isMounted) {
     return (
       <div className="flex-1 space-y-6 p-8 pt-6">
-        <DashboardHeader title="Salles Physiques" description="Configurez les locaux de votre établissement." />
-        <div className="p-8 text-xs text-slate-400">Chargement de l&apos;interface...</div>
+        <DashboardHeader title="Salles Physiques" description="Configurez les locaux." />
+        <div className="p-8 text-xs text-slate-400">Chargement...</div>
       </div>
     );
   }
