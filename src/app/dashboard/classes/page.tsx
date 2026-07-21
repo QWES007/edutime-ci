@@ -45,7 +45,7 @@ export default function ClassesPage() {
   const supabase = createClient();
   const [entryMode, setEntryMode] = useState<"manual" | "excel">("manual");
   const [classes, setClasses] = useState<ClassGroup[]>([]);
-  const [isInitialized, setIsInitialized] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
 
   const [level, setLevel] = useState("6ème");
   const [name, setName] = useState("6ème 1");
@@ -54,36 +54,57 @@ export default function ClassesPage() {
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
 
   useEffect(() => {
-    const loadClassesData = async () => {
-      if (supabase) {
-        try {
-          const { data, error } = await supabase.from("classgroups").select("*");
-          if (!error && data && data.length > 0) {
-            setClasses(data);
-            setSelectedClassId(data[0].id);
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-            setIsInitialized(true);
-            return;
-          }
-        } catch (e) {
-          console.log("Supabase non disponible :", e);
-        }
-      }
+    setIsMounted(true);
 
-      const savedLocal = localStorage.getItem(STORAGE_KEY);
-      if (savedLocal !== null) {
+    const syncAndLoadClasses = async () => {
+      const savedLocal = typeof window !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null;
+      let localClasses: ClassGroup[] = [];
+      if (savedLocal) {
         try {
-          const parsed = JSON.parse(savedLocal);
-          setClasses(parsed);
-          if (parsed.length > 0) setSelectedClassId(parsed[0].id);
+          localClasses = JSON.parse(savedLocal);
         } catch (e) {
           console.error(e);
         }
       }
-      setIsInitialized(true);
+
+      if (supabase) {
+        try {
+          const { data: remoteClasses, error: selectError } = await supabase.from("classgroups").select("*");
+
+          if (!selectError && remoteClasses && remoteClasses.length > 0) {
+            setClasses(remoteClasses);
+            setSelectedClassId(remoteClasses[0].id);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(remoteClasses));
+            return;
+          }
+
+          if (localClasses.length > 0 && (!remoteClasses || remoteClasses.length === 0)) {
+            const formattedClasses = localClasses.map((c) => ({
+              id: c.id && c.id.length === 36 ? c.id : crypto.randomUUID(),
+              name: c.name,
+              level: c.level || "6ème",
+              studentCount: Number(c.studentCount) || 40,
+              subjectHours: c.subjectHours || DEFAULT_MENA_HOURS["6ème"],
+            }));
+
+            const { error: insertError } = await supabase.from("classgroups").insert(formattedClasses);
+            if (!insertError) {
+              setClasses(formattedClasses);
+              setSelectedClassId(formattedClasses[0].id);
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(formattedClasses));
+              return;
+            }
+          }
+        } catch (err) {
+          console.error("Erreur Supabase Classes :", err);
+        }
+      }
+
+      setClasses(localClasses);
+      if (localClasses.length > 0) setSelectedClassId(localClasses[0].id);
     };
 
-    loadClassesData();
+    syncAndLoadClasses();
   }, []);
 
   const handleLevelChange = (newLevel: string) => {
@@ -192,11 +213,7 @@ export default function ClassesPage() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
 
     if (supabase) {
-      try {
-        await supabase.from("classgroups").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-      } catch (err) {
-        console.error(err);
-      }
+      await supabase.from("classgroups").delete().neq("id", "00000000-0000-0000-0000-000000000000");
     }
   };
 
@@ -205,7 +222,16 @@ export default function ClassesPage() {
     ? Object.values(selectedClass.subjectHours).reduce((a, b) => a + b, 0)
     : 0;
 
-  if (!isInitialized) return <div className="p-8 text-xs text-slate-400">Chargement...</div>;
+  if (!isMounted) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-xl font-extrabold text-white tracking-tight flex items-center gap-2">
+          <Layers className="size-5 text-emerald-400" /> Divisions & Classes
+        </h1>
+        <p className="text-xs text-slate-400">Chargement de l&apos;interface...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

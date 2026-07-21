@@ -46,47 +46,67 @@ export default function TeachersPage() {
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [selectedTeacherId, setSelectedTeacherId] = useState<string | null>(null);
   const [insertMode, setInsertMode] = useState<"manual" | "excel">("manual");
-  const [isInitialized, setIsInitialized] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
   
   const [name, setName] = useState("");
   const [subject, setSubject] = useState("");
   const [weeklyHours, setWeeklyHours] = useState(18);
 
   useEffect(() => {
-    const loadTeachersData = async () => {
-      if (supabase) {
-        try {
-          const { data, error } = await supabase
-            .from("teachers")
-            .select("*")
-            .order("name", { ascending: true });
+    setIsMounted(true);
 
-          if (!error && data && data.length > 0) {
-            setTeachers(data);
-            setSelectedTeacherId(data[0].id);
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-            setIsInitialized(true);
-            return;
-          }
-        } catch (e) {
-          console.log("Supabase non disponible :", e);
-        }
-      }
-
-      const savedLocal = localStorage.getItem(STORAGE_KEY);
-      if (savedLocal !== null) {
+    const syncAndLoadTeachers = async () => {
+      const savedLocal = typeof window !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null;
+      let localTeachers: Teacher[] = [];
+      if (savedLocal) {
         try {
-          const parsed = JSON.parse(savedLocal);
-          setTeachers(parsed);
-          if (parsed.length > 0) setSelectedTeacherId(parsed[0].id);
+          localTeachers = JSON.parse(savedLocal);
         } catch (e) {
           console.error(e);
         }
       }
-      setIsInitialized(true);
+
+      if (supabase) {
+        try {
+          const { data: remoteTeachers, error: selectError } = await supabase
+            .from("teachers")
+            .select("*")
+            .order("name", { ascending: true });
+
+          if (!selectError && remoteTeachers && remoteTeachers.length > 0) {
+            setTeachers(remoteTeachers);
+            setSelectedTeacherId(remoteTeachers[0].id);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(remoteTeachers));
+            return;
+          }
+
+          if (localTeachers.length > 0 && (!remoteTeachers || remoteTeachers.length === 0)) {
+            const formattedTeachers = localTeachers.map((t) => ({
+              id: t.id && t.id.length === 36 ? t.id : crypto.randomUUID(),
+              name: t.name,
+              subject: t.subject,
+              weekly_hours: Number(t.weekly_hours) || 18,
+              unavailabilities: t.unavailabilities || {},
+            }));
+
+            const { error: insertError } = await supabase.from("teachers").insert(formattedTeachers);
+            if (!insertError) {
+              setTeachers(formattedTeachers);
+              setSelectedTeacherId(formattedTeachers[0].id);
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(formattedTeachers));
+              return;
+            }
+          }
+        } catch (err) {
+          console.error("Erreur Supabase Teachers :", err);
+        }
+      }
+
+      setTeachers(localTeachers);
+      if (localTeachers.length > 0) setSelectedTeacherId(localTeachers[0].id);
     };
 
-    loadTeachersData();
+    syncAndLoadTeachers();
   }, []);
 
   const handleAddTeacher = async (e: React.FormEvent) => {
@@ -124,8 +144,7 @@ export default function TeachersPage() {
       try {
         const bstr = evt.target?.result;
         const wb = XLSX.read(bstr, { type: "binary" });
-        const wsname = wb.SheetNames[0];
-        const ws = wb.Sheets[wsname];
+        const ws = wb.Sheets[wb.SheetNames[0]];
         const data = XLSX.utils.sheet_to_json(ws) as any[];
 
         const importedTeachers: Teacher[] = data
@@ -138,10 +157,7 @@ export default function TeachersPage() {
             unavailabilities: {},
           }));
 
-        if (importedTeachers.length === 0) {
-          alert("Aucun enseignant valide trouvé.");
-          return;
-        }
+        if (importedTeachers.length === 0) return;
 
         const merged = [...teachers, ...importedTeachers];
         setTeachers(merged);
@@ -183,11 +199,7 @@ export default function TeachersPage() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
 
     if (supabase) {
-      try {
-        await supabase.from("teachers").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-      } catch (err) {
-        console.error(err);
-      }
+      await supabase.from("teachers").delete().neq("id", "00000000-0000-0000-0000-000000000000");
     }
   };
 
@@ -224,7 +236,16 @@ export default function TeachersPage() {
 
   const selectedTeacher = teachers.find((t) => t.id === selectedTeacherId);
 
-  if (!isInitialized) return <div className="p-8 text-xs text-slate-400">Chargement...</div>;
+  if (!isMounted) {
+    return (
+      <div className="p-6 max-w-7xl mx-auto space-y-6">
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+          <Users className="size-6 text-emerald-600" /> Enseignants & Dispos
+        </h1>
+        <p className="text-xs text-slate-400">Chargement de l&apos;interface...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
