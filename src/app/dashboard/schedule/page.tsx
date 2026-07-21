@@ -7,8 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Users, GraduationCap, Building2, Calendar, Play, CheckCircle2, AlertTriangle, Clock } from "lucide-react";
 
-// Types MENA
-type DayOfWeek = 'Lundi' | 'Mardi' | 'Mercredi' | 'Jeudi' | 'Vendredi' | 'Samedi';
+type DayOfWeek = 'Lundi' | 'Mardi' | 'Mercredi' | 'Jeudi' | 'Vendredi';
 
 interface Teacher {
   id: string;
@@ -21,7 +20,7 @@ interface Teacher {
 interface Room {
   id: string;
   name: string;
-  type: string; // 'Standard' | 'Lab' | 'Sports'
+  type: string;
   capacity: number;
 }
 
@@ -54,7 +53,7 @@ const SLOT_INDEX_MAP: Record<string, number> = {
 };
 
 const isSvtPcFirstCycleLevel = (level: string) => ['6ème', '5ème', '4ème'].includes(level);
-const isSvtPc1h30 = (level: string, subId: string) => isSvtPcFirstCycleLevel(level) && ['svt', 'pc'].includes(subId.toLowerCase());
+const isSvtPc1h30 = (level: string, subId: string) => isSvtPcFirstCycleLevel(level) && ['SVT', 'PC'].includes(subId.toUpperCase());
 
 function hasInvalidGaps(slots: string[]): boolean {
   const morningIndices: number[] = [];
@@ -160,7 +159,7 @@ export default function ScheduleGeneratorPage() {
             t = tRes.data.map((item: any) => ({
               id: item.id,
               name: item.name,
-              subjects: Array.isArray(item.subjects) ? item.subjects.map((s: string) => s.toLowerCase()) : [String(item.subject || "maths").toLowerCase()],
+              subjects: Array.isArray(item.subjects) ? item.subjects.map((s: string) => String(s).toUpperCase()) : [String(item.subject || "MATHS").toUpperCase()],
               maxHoursPerWeek: Number(item.max_hours_per_week || item.weekly_hours || 18),
               unavailabilities: Object.keys(item.unavailabilities || {}),
             }));
@@ -170,8 +169,8 @@ export default function ScheduleGeneratorPage() {
             c = cRes.data.map((item: any) => ({
               id: item.id,
               name: item.name,
-              level: item.level,
-              studentCount: Number(item.student_count || 40),
+              level: item.level || "6ème",
+              studentCount: Number(item.student_count || 45),
               subjectHours: item.subject_hours || {},
               doubleVacation: item.double_vacation || "none",
             }));
@@ -181,7 +180,7 @@ export default function ScheduleGeneratorPage() {
             r = rRes.data.map((item: any) => ({
               id: item.id,
               name: item.name,
-              type: String(item.type || "Standard").toLowerCase() === "laboratoire" ? "Lab" : String(item.type || "Standard").toLowerCase() === "sports" ? "Sports" : "Standard",
+              type: String(item.type || "Standard").toLowerCase().includes("lab") ? "Lab" : String(item.type || "Standard").toLowerCase().includes("sport") ? "Sports" : "Standard",
               capacity: Number(item.capacity || 50),
             }));
           }
@@ -225,7 +224,7 @@ export default function ScheduleGeneratorPage() {
 
     rawClasses.forEach(cg => {
       Object.keys(cg.subjectHours).forEach(subId => {
-        const cleanSubId = subId.toLowerCase();
+        const cleanSubId = subId.toUpperCase();
         const eligibleTeachers = rawTeachers.filter(t => t.subjects.includes(cleanSubId));
 
         if (eligibleTeachers.length > 0) {
@@ -245,7 +244,7 @@ export default function ScheduleGeneratorPage() {
 
     rawClasses.forEach(cg => {
       Object.entries(cg.subjectHours).forEach(([subId, totalHours]) => {
-        const cleanSubId = subId.toLowerCase();
+        const cleanSubId = subId.toUpperCase();
         const teacherId = classSubjectTeacherMap[`${cg.id}_${cleanSubId}`];
         if (!teacherId) return;
 
@@ -255,7 +254,7 @@ export default function ScheduleGeneratorPage() {
         }
 
         let remainingHours = Number(totalHours) || 0;
-        const isBlockPreferred = ['maths', 'pc', 'fr', 'svt', 'philo', 'eps'].includes(cleanSubId);
+        const isBlockPreferred = ['MATHS', 'PC', 'FR', 'SVT', 'PHILO', 'EPS'].includes(cleanSubId);
 
         if (isBlockPreferred || remainingHours > 2) {
           while (remainingHours >= 2) {
@@ -297,9 +296,10 @@ export default function ScheduleGeneratorPage() {
 
     const getEligibleRooms = (subId: string, neededCapacity: number): Room[] => {
       let filtered = rawRooms;
-      if (subId === 'eps') {
+      const clean = subId.toUpperCase();
+      if (clean === 'EPS') {
         filtered = rawRooms.filter(r => r.type === 'Sports');
-      } else if (['pc', 'svt'].includes(subId)) {
+      } else if (['PC', 'SVT'].includes(clean)) {
         const labs = rawRooms.filter(r => r.type === 'Lab' && r.capacity >= neededCapacity);
         if (labs.length > 0) return labs;
         filtered = rawRooms.filter(r => r.type === 'Standard');
@@ -362,7 +362,7 @@ export default function ScheduleGeneratorPage() {
             const isLunchSpan = slotsToTest.some(s => s.period === 'Matin') && slotsToTest.some(s => s.period === 'Après-midi');
             if (isLunchSpan) continue;
 
-            if (req.subjectId === 'eps') {
+            if (req.subjectId.toUpperCase() === 'EPS') {
               let epsSlotsOk = true;
               for (const slot of slotsToTest) {
                 if (isFirstCycle) {
@@ -469,7 +469,6 @@ export default function ScheduleGeneratorPage() {
     const assignedHours = entries.length;
     const successRate = totalHoursNeeded > 0 ? Math.round((assignedHours / totalHoursNeeded) * 100) : 100;
 
-    // Enregistrement des données
     localStorage.setItem("edutime_timetable_entries_v1", JSON.stringify(entries));
 
     if (supabase && entries.length > 0) {
