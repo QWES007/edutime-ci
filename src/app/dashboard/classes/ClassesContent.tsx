@@ -36,7 +36,7 @@ const DEFAULT_MENA_HOURS: Record<string, Record<string, number>> = {
   "Tle D": { MATHS: 5, PC: 5, SVT: 6, FR: 3, PHILO: 3, ANG: 3, LV2: 2, HG: 2, ARTS: 0, EDHC: 1, EPS: 2, TICE: 1 },
 };
 
-export default function ClassesPage() {
+export default function ClassesContent() {
   const [supabase] = useState(() => createClient());
   const [classes, setClasses] = useState<ClassGroup[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -45,7 +45,6 @@ export default function ClassesPage() {
   const [studentCount, setStudentCount] = useState(45);
   const [doubleVacation, setDoubleVacation] = useState<"none" | "A" | "B">("none");
   const [subjectHours, setSubjectHours] = useState<Record<string, number>>(DEFAULT_MENA_HOURS["6ème"]);
-  const [isMounted, setIsMounted] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   const loadClasses = async () => {
@@ -64,14 +63,14 @@ export default function ClassesPage() {
           }));
         }
       } catch (e) {
-        console.error("Erreur chargement classes Supabase :", e);
+        console.error("Erreur Supabase :", e);
       }
     }
 
     if (loaded.length === 0 && typeof window !== "undefined") {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
-        try { loaded = JSON.parse(saved); } catch (e) { console.error(e); }
+        try { loaded = JSON.parse(saved); } catch (e) {}
       }
     }
 
@@ -79,7 +78,6 @@ export default function ClassesPage() {
   };
 
   useEffect(() => {
-    setIsMounted(true);
     loadClasses();
   }, []);
 
@@ -126,9 +124,7 @@ export default function ClassesPage() {
       : [localPayload, ...classes];
 
     setClasses(updated);
-    if (typeof window !== "undefined") {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 
     if (supabase) {
       const dbPayload: any = {
@@ -144,17 +140,9 @@ export default function ClassesPage() {
 
       if (error && error.message.includes("double_vacation")) {
         delete dbPayload.double_vacation;
-        const retry = await supabase.from("classgroups").upsert(dbPayload);
-        if (retry.error) {
-          alert(`Erreur Supabase : ${retry.error.message}`);
-        } else {
-          await loadClasses();
-        }
-      } else if (error) {
-        alert(`Erreur Supabase : ${error.message}`);
-      } else {
-        await loadClasses();
+        await supabase.from("classgroups").upsert(dbPayload);
       }
+      await loadClasses();
     }
 
     setIsSaving(false);
@@ -165,9 +153,7 @@ export default function ClassesPage() {
     e.stopPropagation();
     const filtered = classes.filter((c) => c.id !== id);
     setClasses(filtered);
-    if (typeof window !== "undefined") {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
-    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
     if (editingId === id) handleCancelEdit();
 
     if (supabase) {
@@ -175,10 +161,6 @@ export default function ClassesPage() {
       await loadClasses();
     }
   };
-
-  if (!isMounted) {
-    return <div className="p-8 text-xs text-slate-400">Chargement...</div>;
-  }
 
   return (
     <div className="p-8 space-y-6 max-w-7xl mx-auto">
@@ -246,7 +228,6 @@ export default function ClassesPage() {
                   </div>
                 </div>
 
-                {/* DOUBLE VACATION */}
                 <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-2">
                   <Label className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider block">
                     Système de Double Vacation (Rotation MENA)
@@ -267,7 +248,6 @@ export default function ClassesPage() {
                   </div>
                 </div>
 
-                {/* HEURES REQUISES */}
                 <div className="space-y-2">
                   <Label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
                     Volumes Horaires Requis ({level})
@@ -303,7 +283,6 @@ export default function ClassesPage() {
           </Card>
         </div>
 
-        {/* Liste des classes */}
         <div className="md:col-span-7 space-y-3 max-h-[600px] overflow-y-auto pr-1">
           {classes.map((c) => {
             const isSelected = editingId === c.id;
