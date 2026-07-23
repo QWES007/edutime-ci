@@ -4,7 +4,6 @@ import React, { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { DashboardHeader } from "@/components/layout/dashboard-sidebar";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { GraduationCap, Trash2, Edit } from "lucide-react";
@@ -35,6 +34,14 @@ const DEFAULT_MENA_HOURS: Record<string, Record<string, number>> = {
   "Tle A2": { MATHS: 3, PC: 0, SVT: 0, FR: 5, PHILO: 5, ANG: 4, LV2: 4, HG: 4, ARTS: 0, EDHC: 1, EPS: 2, TICE: 1 },
   "Tle C": { MATHS: 8, PC: 7, SVT: 3, FR: 3, PHILO: 3, ANG: 3, LV2: 2, HG: 2, ARTS: 0, EDHC: 1, EPS: 2, TICE: 1 },
   "Tle D": { MATHS: 5, PC: 5, SVT: 6, FR: 3, PHILO: 3, ANG: 3, LV2: 2, HG: 2, ARTS: 0, EDHC: 1, EPS: 2, TICE: 1 },
+};
+
+// Generateur d'UUID hybride (compatible SSG)
+const generateId = () => {
+  if (typeof window !== "undefined" && window.crypto && window.crypto.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+  return `class_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 };
 
 export default function ClassesPage() {
@@ -111,7 +118,7 @@ export default function ClassesPage() {
     if (!className.trim()) return;
 
     setIsSaving(true);
-    const targetId = editingId || crypto.randomUUID();
+    const targetId = editingId || generateId();
 
     const localPayload = {
       id: targetId,
@@ -127,7 +134,9 @@ export default function ClassesPage() {
       : [localPayload, ...classes];
 
     setClasses(updated);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    if (typeof window !== "undefined") {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    }
 
     if (supabase) {
       const dbPayload: any = {
@@ -164,7 +173,9 @@ export default function ClassesPage() {
     e.stopPropagation();
     const filtered = classes.filter((c) => c.id !== id);
     setClasses(filtered);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+    if (typeof window !== "undefined") {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+    }
     if (editingId === id) handleCancelEdit();
 
     if (supabase) {
@@ -184,14 +195,14 @@ export default function ClassesPage() {
 
       <div className="grid gap-6 md:grid-cols-12">
         <div className="md:col-span-5 space-y-6">
-          <Card className="border-slate-800 bg-slate-900/50">
-            <CardHeader className="pb-3 border-b border-slate-800">
+          <div className="rounded-xl border border-slate-800 bg-slate-900/50 overflow-hidden">
+            <div className="p-4 border-b border-slate-800 bg-slate-900">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <GraduationCap className="size-4 text-emerald-400" />
                 {editingId ? "Modifier la classe" : "Création d'une Division"}
               </h3>
-            </CardHeader>
-            <CardContent className="pt-4 space-y-4">
+            </div>
+            <div className="p-4 space-y-4">
               <form onSubmit={handleSaveClass} className="space-y-4">
                 <div>
                   <Label className="text-xs font-semibold text-slate-300">Désignation de la classe</Label>
@@ -285,45 +296,43 @@ export default function ClassesPage() {
                   )}
                 </div>
               </form>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </div>
 
-        {/* Liste des classes cliquables */}
+        {/* Liste des classes */}
         <div className="md:col-span-7 space-y-3 max-h-[600px] overflow-y-auto pr-1">
           {classes.map((c) => {
             const isSelected = editingId === c.id;
             return (
-              <Card
+              <div
                 key={c.id}
                 onClick={() => handleSelectClassForEdit(c)}
-                className={`border cursor-pointer transition-all ${
+                className={`rounded-xl border p-4 transition-all cursor-pointer flex items-center justify-between ${
                   isSelected ? "bg-emerald-950/30 border-emerald-500 ring-1 ring-emerald-500" : "bg-slate-900/50 border-slate-800 hover:border-slate-700"
                 }`}
               >
-                <CardContent className="p-4 flex items-center justify-between">
-                  <div>
-                    <h4 className="font-extrabold text-sm text-white flex items-center gap-2">
-                      {c.name}
-                      <Edit className="size-3.5 text-slate-400 opacity-60" />
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
-                        {c.level}
+                <div>
+                  <h4 className="font-extrabold text-sm text-white flex items-center gap-2">
+                    {c.name}
+                    <Edit className="size-3.5 text-slate-400 opacity-60" />
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
+                      {c.level}
+                    </span>
+                    {c.double_vacation !== "none" && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold">
+                        Vague {c.double_vacation}
                       </span>
-                      {c.double_vacation !== "none" && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold">
-                          Vague {c.double_vacation}
-                        </span>
-                      )}
-                    </h4>
-                    <p className="text-[11px] text-slate-400 mt-1">
-                      Effectif : {c.student_count} élèves &bull; Total : {Object.values(c.subject_hours || {}).reduce((a, b) => a + Number(b), 0)}h / semaine
-                    </p>
-                  </div>
-                  <Button variant="ghost" size="sm" onClick={(e) => handleDeleteClass(c.id, e)} className="text-slate-500 hover:text-rose-500">
-                    <Trash2 className="size-4" />
-                  </Button>
-                </CardContent>
-              </Card>
+                    )}
+                  </h4>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Effectif : {c.student_count} élèves &bull; Total : {Object.values(c.subject_hours || {}).reduce((a, b) => a + Number(b), 0)}h / semaine
+                  </p>
+                </div>
+                <Button variant="ghost" size="sm" onClick={(e) => handleDeleteClass(c.id, e)} className="text-slate-500 hover:text-rose-500">
+                  <Trash2 className="size-4" />
+                </Button>
+              </div>
             );
           })}
         </div>
