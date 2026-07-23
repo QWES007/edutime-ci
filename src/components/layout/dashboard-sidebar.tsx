@@ -112,6 +112,9 @@ export function DashboardSidebar() {
           const isActive = pathname === item.href;
           const Icon = item.icon;
 
+          // Garde-fou contre les icônes undefined
+          if (!Icon) return null;
+
           return (
             <Link
               key={item.href}
@@ -145,7 +148,6 @@ export function DashboardSidebar() {
   return (
     <aside className="w-64 border-r border-slate-800 bg-slate-950 flex flex-col justify-between shrink-0 min-h-screen">
       <div className="p-4 space-y-6">
-        {/* Logo App */}
         <div className="flex items-center gap-3 px-2 py-1">
           <div className="bg-emerald-600 text-white p-2 rounded-xl shadow-md">
             <Sparkles className="size-5" />
@@ -158,7 +160,6 @@ export function DashboardSidebar() {
           </div>
         </div>
 
-        {/* Navigation */}
         <nav className="space-y-4">
           {renderNavGroup("Vue générale", mainNavItems)}
           {renderNavGroup("Scolarité & Structure", scolariteItems)}
@@ -167,7 +168,6 @@ export function DashboardSidebar() {
         </nav>
       </div>
 
-      {/* Footer / User Profile */}
       <div className="p-4 border-t border-slate-800/80 bg-slate-900/30">
         <div className="flex items-center justify-between text-xs text-slate-400">
           <div className="truncate">
