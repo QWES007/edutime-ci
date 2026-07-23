@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { DashboardHeader } from "@/components/layout/dashboard-sidebar";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { GraduationCap, Trash2, Edit } from "lucide-react";
@@ -122,7 +122,6 @@ export default function ClassesPage() {
       subject_hours: subjectHours,
     };
 
-    // Mise à jour locale immédiate pour réactivité
     const updated = editingId
       ? classes.map((c) => (c.id === editingId ? localPayload : c))
       : [localPayload, ...classes];
@@ -130,7 +129,6 @@ export default function ClassesPage() {
     setClasses(updated);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 
-    // Sauvegarde Supabase
     if (supabase) {
       const dbPayload: any = {
         id: targetId,
@@ -143,7 +141,6 @@ export default function ClassesPage() {
 
       let { error } = await supabase.from("classgroups").upsert(dbPayload);
 
-      // Si la colonne double_vacation n'existe pas encore dans SQL, on réessaie sans elle
       if (error && error.message.includes("double_vacation")) {
         delete dbPayload.double_vacation;
         const retry = await supabase.from("classgroups").upsert(dbPayload);
@@ -189,10 +186,10 @@ export default function ClassesPage() {
         <div className="md:col-span-5 space-y-6">
           <Card className="border-slate-800 bg-slate-900/50">
             <CardHeader className="pb-3 border-b border-slate-800">
-              <CardTitle className="text-sm font-bold text-white flex items-center gap-2">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <GraduationCap className="size-4 text-emerald-400" />
                 {editingId ? "Modifier la classe" : "Création d'une Division"}
-              </CardTitle>
+              </h3>
             </CardHeader>
             <CardContent className="pt-4 space-y-4">
               <form onSubmit={handleSaveClass} className="space-y-4">
