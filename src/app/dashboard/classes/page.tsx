@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { GraduationCap, Trash2, Edit2 } from "lucide-react";
+import { GraduationCap, Trash2, Edit } from "lucide-react";
 
 interface ClassGroup {
   id: string;
@@ -122,7 +122,7 @@ export default function ClassesPage() {
       subject_hours: subjectHours,
     };
 
-    // Mise à jour locale immédiate (pour l'affichage fluide)
+    // Mise à jour locale immédiate pour réactivité
     const updated = editingId
       ? classes.map((c) => (c.id === editingId ? localPayload : c))
       : [localPayload, ...classes];
@@ -308,7 +308,7 @@ export default function ClassesPage() {
                   <div>
                     <h4 className="font-extrabold text-sm text-white flex items-center gap-2">
                       {c.name}
-                      <Edit2 className="size-3.5 text-slate-400 opacity-60" />
+                      <Edit className="size-3.5 text-slate-400 opacity-60" />
                       <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
                         {c.level}
                       </span>
