@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { DashboardHeader } from "@/components/layout/dashboard-sidebar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -36,6 +35,22 @@ const DEFAULT_MENA_HOURS: Record<string, Record<string, number>> = {
   "Tle C": { MATHS: 8, PC: 7, SVT: 3, FR: 3, PHILO: 3, ANG: 3, LV2: 2, HG: 2, ARTS: 0, EDHC: 1, EPS: 2, TICE: 1 },
   "Tle D": { MATHS: 5, PC: 5, SVT: 6, FR: 3, PHILO: 3, ANG: 3, LV2: 2, HG: 2, ARTS: 0, EDHC: 1, EPS: 2, TICE: 1 },
 };
+
+function PageHeader({ title, description }: { title: string; description?: string }) {
+  return (
+    <div className="flex flex-col gap-1 border-b border-slate-800 pb-5">
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-extrabold tracking-tight text-white flex items-center gap-2">
+          {title}
+        </h1>
+        <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+          Normes MENA v2026
+        </span>
+      </div>
+      {description && <p className="text-xs text-slate-400 max-w-2xl">{description}</p>}
+    </div>
+  );
+}
 
 export default function ClassesPage() {
   const [supabase] = useState(() => createClient());
@@ -72,7 +87,11 @@ export default function ClassesPage() {
     if (loaded.length === 0 && typeof window !== "undefined") {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
-        try { loaded = JSON.parse(saved); } catch (e) { console.error(e); }
+        try {
+          loaded = JSON.parse(saved);
+        } catch (e) {
+          console.error(e);
+        }
       }
     }
 
@@ -177,7 +196,7 @@ export default function ClassesPage() {
 
   return (
     <div className="p-8 space-y-6 max-w-7xl mx-auto">
-      <DashboardHeader
+      <PageHeader
         title="Configuration des Divisions & Classes"
         description="Cliquez sur n'importe quelle classe pour modifier son niveau, sa double vacation ou ses volumes horaires."
       />
@@ -216,7 +235,9 @@ export default function ClassesPage() {
                       className="mt-1 w-full bg-slate-950 border border-slate-800 rounded-md p-2 text-xs text-emerald-400 font-bold focus:outline-none"
                     >
                       {Object.keys(DEFAULT_MENA_HOURS).map((lvl) => (
-                        <option key={lvl} value={lvl}>{lvl}</option>
+                        <option key={lvl} value={lvl}>
+                          {lvl}
+                        </option>
                       ))}
                     </select>
                   </div>
@@ -239,16 +260,38 @@ export default function ClassesPage() {
                   </Label>
                   <div className="space-y-1.5 text-xs text-slate-300">
                     <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="radio" name="vacation" checked={doubleVacation === "none"} onChange={() => setDoubleVacation("none")} className="accent-emerald-500" />
+                      <input
+                        type="radio"
+                        name="vacation"
+                        checked={doubleVacation === "none"}
+                        onChange={() => setDoubleVacation("none")}
+                        className="accent-emerald-500"
+                      />
                       <span>Plein temps (Standard)</span>
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="radio" name="vacation" checked={doubleVacation === "A"} onChange={() => setDoubleVacation("A")} className="accent-emerald-500" />
-                      <span>Vague A <span className="text-[10px] text-slate-500">(L/M/V Matin, M/J Après-midi)</span></span>
+                      <input
+                        type="radio"
+                        name="vacation"
+                        checked={doubleVacation === "A"}
+                        onChange={() => setDoubleVacation("A")}
+                        className="accent-emerald-500"
+                      />
+                      <span>
+                        Vague A <span className="text-[10px] text-slate-500">(L/M/V Matin, M/J Après-midi)</span>
+                      </span>
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="radio" name="vacation" checked={doubleVacation === "B"} onChange={() => setDoubleVacation("B")} className="accent-emerald-500" />
-                      <span>Vague B <span className="text-[10px] text-slate-500">(L/M/V Après-midi, M/J Matin)</span></span>
+                      <input
+                        type="radio"
+                        name="vacation"
+                        checked={doubleVacation === "B"}
+                        onChange={() => setDoubleVacation("B")}
+                        className="accent-emerald-500"
+                      />
+                      <span>
+                        Vague B <span className="text-[10px] text-slate-500">(L/M/V Après-midi, M/J Matin)</span>
+                      </span>
                     </label>
                   </div>
                 </div>
@@ -275,11 +318,20 @@ export default function ClassesPage() {
                 </div>
 
                 <div className="flex gap-2">
-                  <Button type="submit" disabled={isSaving} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs h-9">
+                  <Button
+                    type="submit"
+                    disabled={isSaving}
+                    className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs h-9"
+                  >
                     {isSaving ? "Enregistrement..." : editingId ? "Mettre à jour la classe" : "Enregistrer la classe"}
                   </Button>
                   {editingId && (
-                    <Button type="button" variant="outline" onClick={handleCancelEdit} className="text-xs h-9 border-slate-800 text-slate-300">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleCancelEdit}
+                      className="text-xs h-9 border-slate-800 text-slate-300"
+                    >
                       Annuler
                     </Button>
                   )}
@@ -289,7 +341,7 @@ export default function ClassesPage() {
           </Card>
         </div>
 
-        {/* Liste des classes cliquables */}
+        {/* Liste des classes */}
         <div className="md:col-span-7 space-y-3 max-h-[600px] overflow-y-auto pr-1">
           {classes.map((c) => {
             const isSelected = editingId === c.id;
@@ -298,7 +350,9 @@ export default function ClassesPage() {
                 key={c.id}
                 onClick={() => handleSelectClassForEdit(c)}
                 className={`border cursor-pointer transition-all ${
-                  isSelected ? "bg-emerald-950/30 border-emerald-500 ring-1 ring-emerald-500" : "bg-slate-900/50 border-slate-800 hover:border-slate-700"
+                  isSelected
+                    ? "bg-emerald-950/30 border-emerald-500 ring-1 ring-emerald-500"
+                    : "bg-slate-900/50 border-slate-800 hover:border-slate-700"
                 }`}
               >
                 <CardContent className="p-4 flex items-center justify-between">
@@ -316,10 +370,16 @@ export default function ClassesPage() {
                       )}
                     </h4>
                     <p className="text-[11px] text-slate-400 mt-1">
-                      Effectif : {c.student_count} élèves &bull; Total : {Object.values(c.subject_hours || {}).reduce((a, b) => a + Number(b), 0)}h / semaine
+                      Effectif : {c.student_count} élèves &bull; Total :{" "}
+                      {Object.values(c.subject_hours || {}).reduce((a, b) => a + Number(b), 0)}h / semaine
                     </p>
                   </div>
-                  <Button variant="ghost" size="sm" onClick={(e) => handleDeleteClass(c.id, e)} className="text-slate-500 hover:text-rose-500">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={(e) => handleDeleteClass(c.id, e)}
+                    className="text-slate-500 hover:text-rose-500"
+                  >
                     <Trash2 className="size-4" />
                   </Button>
                 </CardContent>
