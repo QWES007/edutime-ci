@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { GraduationCap, Trash2, Edit } from "lucide-react";
 
 interface ClassGroup {
   id: string;
@@ -183,8 +182,7 @@ export default function ClassesContent() {
           <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6 space-y-4">
             <div className="pb-3 border-b border-slate-800">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <GraduationCap className="size-4 text-emerald-400" />
-                {editingId ? "Modifier la classe" : "Création d'une Division"}
+                🎓 {editingId ? "Modifier la classe" : "Création d'une Division"}
               </h3>
             </div>
 
@@ -311,8 +309,7 @@ export default function ClassesContent() {
               >
                 <div>
                   <h4 className="font-extrabold text-sm text-white flex items-center gap-2">
-                    {c.name}
-                    <Edit className="size-3.5 text-slate-400 opacity-60" />
+                    {c.name} ✏️
                     <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
                       {c.level}
                     </span>
@@ -331,7 +328,7 @@ export default function ClassesContent() {
                   onClick={(e) => handleDeleteClass(c.id, e)}
                   className="p-2 text-slate-500 hover:text-rose-500 transition-colors cursor-pointer"
                 >
-                  <Trash2 className="size-4" />
+                  🗑️
                 </button>
               </div>
             );
