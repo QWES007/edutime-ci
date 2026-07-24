@@ -2,10 +2,6 @@
 
 import React, { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { GraduationCap, Trash2, Edit } from "lucide-react";
 
 interface ClassGroup {
@@ -124,7 +120,9 @@ export default function ClassesContent() {
       : [localPayload, ...classes];
 
     setClasses(updated);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    if (typeof window !== "undefined") {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    }
 
     if (supabase) {
       const dbPayload: any = {
@@ -153,7 +151,9 @@ export default function ClassesContent() {
     e.stopPropagation();
     const filtered = classes.filter((c) => c.id !== id);
     setClasses(filtered);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+    if (typeof window !== "undefined") {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+    }
     if (editingId === id) handleCancelEdit();
 
     if (supabase) {
@@ -180,143 +180,160 @@ export default function ClassesContent() {
 
       <div className="grid gap-6 md:grid-cols-12">
         <div className="md:col-span-5 space-y-6">
-          <Card className="border-slate-800 bg-slate-900/50">
-            <CardHeader className="pb-3 border-b border-slate-800">
+          <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6 space-y-4">
+            <div className="pb-3 border-b border-slate-800">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <GraduationCap className="size-4 text-emerald-400" />
                 {editingId ? "Modifier la classe" : "Création d'une Division"}
               </h3>
-            </CardHeader>
-            <CardContent className="pt-4 space-y-4">
-              <form onSubmit={handleSaveClass} className="space-y-4">
+            </div>
+
+            <form onSubmit={handleSaveClass} className="space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">
+                  Désignation de la classe
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ex: 6ème 2, 1ère D2"
+                  value={className}
+                  onChange={(e) => setClassName(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label className="text-xs font-semibold text-slate-300">Désignation de la classe</Label>
-                  <Input
-                    placeholder="Ex: 6ème 2, 1ère D2"
-                    value={className}
-                    onChange={(e) => setClassName(e.target.value)}
-                    className="mt-1 bg-slate-950 border-slate-800 text-xs text-white"
+                  <label className="text-xs font-semibold text-slate-300 block mb-1">
+                    Niveau d&apos;enseignement
+                  </label>
+                  <select
+                    value={level}
+                    onChange={(e) => {
+                      setLevel(e.target.value);
+                      setSubjectHours(DEFAULT_MENA_HOURS[e.target.value] || {});
+                    }}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-emerald-400 font-bold focus:outline-none"
+                  >
+                    {Object.keys(DEFAULT_MENA_HOURS).map((lvl) => (
+                      <option key={lvl} value={lvl}>{lvl}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1">
+                    Effectif de la classe
+                  </label>
+                  <input
+                    type="number"
+                    value={studentCount}
+                    onChange={(e) => setStudentCount(Number(e.target.value))}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-emerald-500"
                     required
                   />
                 </div>
+              </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label className="text-xs font-semibold text-slate-300">Niveau d&apos;enseignement</Label>
-                    <select
-                      value={level}
-                      onChange={(e) => {
-                        setLevel(e.target.value);
-                        setSubjectHours(DEFAULT_MENA_HOURS[e.target.value] || {});
-                      }}
-                      className="mt-1 w-full bg-slate-950 border border-slate-800 rounded-md p-2 text-xs text-emerald-400 font-bold focus:outline-none"
-                    >
-                      {Object.keys(DEFAULT_MENA_HOURS).map((lvl) => (
-                        <option key={lvl} value={lvl}>{lvl}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <Label className="text-xs font-semibold text-slate-300">Effectif de la classe</Label>
-                    <Input
-                      type="number"
-                      value={studentCount}
-                      onChange={(e) => setStudentCount(Number(e.target.value))}
-                      className="mt-1 bg-slate-950 border-slate-800 text-xs text-white"
-                      required
-                    />
-                  </div>
+              <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-2">
+                <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider block">
+                  Système de Double Vacation (Rotation MENA)
+                </span>
+                <div className="space-y-1.5 text-xs text-slate-300">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="vacation" checked={doubleVacation === "none"} onChange={() => setDoubleVacation("none")} className="accent-emerald-500" />
+                    <span>Plein temps (Standard)</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="vacation" checked={doubleVacation === "A"} onChange={() => setDoubleVacation("A")} className="accent-emerald-500" />
+                    <span>Vague A <span className="text-[10px] text-slate-500">(L/M/V Matin, M/J Après-midi)</span></span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="vacation" checked={doubleVacation === "B"} onChange={() => setDoubleVacation("B")} className="accent-emerald-500" />
+                    <span>Vague B <span className="text-[10px] text-slate-500">(L/M/V Après-midi, M/J Matin)</span></span>
+                  </label>
                 </div>
+              </div>
 
-                <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-2">
-                  <Label className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider block">
-                    Système de Double Vacation (Rotation MENA)
-                  </Label>
-                  <div className="space-y-1.5 text-xs text-slate-300">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="radio" name="vacation" checked={doubleVacation === "none"} onChange={() => setDoubleVacation("none")} className="accent-emerald-500" />
-                      <span>Plein temps (Standard)</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="radio" name="vacation" checked={doubleVacation === "A"} onChange={() => setDoubleVacation("A")} className="accent-emerald-500" />
-                      <span>Vague A <span className="text-[10px] text-slate-500">(L/M/V Matin, M/J Après-midi)</span></span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="radio" name="vacation" checked={doubleVacation === "B"} onChange={() => setDoubleVacation("B")} className="accent-emerald-500" />
-                      <span>Vague B <span className="text-[10px] text-slate-500">(L/M/V Après-midi, M/J Matin)</span></span>
-                    </label>
-                  </div>
+              <div className="space-y-2">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                  Volumes Horaires Requis ({level})
+                </span>
+                <div className="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto pr-1">
+                  {Object.entries(subjectHours).map(([sub, hours]) => (
+                    <div key={sub} className="bg-slate-950 p-2 rounded-lg border border-slate-800/80 text-center">
+                      <span className="text-[10px] font-bold text-slate-300 block">{sub}</span>
+                      <input
+                        type="number"
+                        step="0.5"
+                        value={hours}
+                        onChange={(e) => handleHourChange(sub, Number(e.target.value))}
+                        className="w-full text-center text-xs font-bold text-emerald-400 bg-transparent border-none focus:outline-none"
+                      />
+                    </div>
+                  ))}
                 </div>
+              </div>
 
-                <div className="space-y-2">
-                  <Label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
-                    Volumes Horaires Requis ({level})
-                  </Label>
-                  <div className="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto pr-1">
-                    {Object.entries(subjectHours).map(([sub, hours]) => (
-                      <div key={sub} className="bg-slate-950 p-2 rounded-lg border border-slate-800/80 text-center">
-                        <span className="text-[10px] font-bold text-slate-300 block">{sub}</span>
-                        <Input
-                          type="number"
-                          step="0.5"
-                          value={hours}
-                          onChange={(e) => handleHourChange(sub, Number(e.target.value))}
-                          className="h-6 text-center text-xs font-bold text-emerald-400 bg-transparent border-none p-0 focus-visible:ring-0"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex gap-2">
-                  <Button type="submit" disabled={isSaving} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs h-9">
-                    {isSaving ? "Enregistrement..." : editingId ? "Mettre à jour la classe" : "Enregistrer la classe"}
-                  </Button>
-                  {editingId && (
-                    <Button type="button" variant="outline" onClick={handleCancelEdit} className="text-xs h-9 border-slate-800 text-slate-300">
-                      Annuler
-                    </Button>
-                  )}
-                </div>
-              </form>
-            </CardContent>
-          </Card>
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="submit"
+                  disabled={isSaving}
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs h-9 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {isSaving ? "Enregistrement..." : editingId ? "Mettre à jour la classe" : "Enregistrer la classe"}
+                </button>
+                {editingId && (
+                  <button
+                    type="button"
+                    onClick={handleCancelEdit}
+                    className="px-3 text-xs h-9 border border-slate-800 text-slate-300 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                  >
+                    Annuler
+                  </button>
+                )}
+              </div>
+            </form>
+          </div>
         </div>
 
         <div className="md:col-span-7 space-y-3 max-h-[600px] overflow-y-auto pr-1">
           {classes.map((c) => {
             const isSelected = editingId === c.id;
             return (
-              <Card
+              <div
                 key={c.id}
                 onClick={() => handleSelectClassForEdit(c)}
-                className={`border cursor-pointer transition-all ${
+                className={`p-4 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
                   isSelected ? "bg-emerald-950/30 border-emerald-500 ring-1 ring-emerald-500" : "bg-slate-900/50 border-slate-800 hover:border-slate-700"
                 }`}
               >
-                <CardContent className="p-4 flex items-center justify-between">
-                  <div>
-                    <h4 className="font-extrabold text-sm text-white flex items-center gap-2">
-                      {c.name}
-                      <Edit className="size-3.5 text-slate-400 opacity-60" />
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
-                        {c.level}
+                <div>
+                  <h4 className="font-extrabold text-sm text-white flex items-center gap-2">
+                    {c.name}
+                    <Edit className="size-3.5 text-slate-400 opacity-60" />
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
+                      {c.level}
+                    </span>
+                    {c.double_vacation !== "none" && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold">
+                        Vague {c.double_vacation}
                       </span>
-                      {c.double_vacation !== "none" && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold">
-                          Vague {c.double_vacation}
-                        </span>
-                      )}
-                    </h4>
-                    <p className="text-[11px] text-slate-400 mt-1">
-                      Effectif : {c.student_count} élèves &bull; Total : {Object.values(c.subject_hours || {}).reduce((a, b) => a + Number(b), 0)}h / semaine
-                    </p>
-                  </div>
-                  <Button variant="ghost" size="sm" onClick={(e) => handleDeleteClass(c.id, e)} className="text-slate-500 hover:text-rose-500">
-                    <Trash2 className="size-4" />
-                  </Button>
-                </CardContent>
-              </Card>
+                    )}
+                  </h4>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Effectif : {c.student_count} élèves &bull; Total : {Object.values(c.subject_hours || {}).reduce((a, b) => a + Number(b), 0)}h / semaine
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => handleDeleteClass(c.id, e)}
+                  className="p-2 text-slate-500 hover:text-rose-500 transition-colors cursor-pointer"
+                >
+                  <Trash2 className="size-4" />
+                </button>
+              </div>
             );
           })}
         </div>
