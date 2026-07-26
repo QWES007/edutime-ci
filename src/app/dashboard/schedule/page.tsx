@@ -15,7 +15,7 @@ interface Teacher {
   subjects: string[];
   maxHoursPerWeek: number;
   grade: number;
-  unavailabilities: string[];
+  unavailabilities: Record<string, boolean>;
 }
 
 interface Room {
@@ -51,6 +51,7 @@ export default function ScheduleGeneratorPage() {
     conflicts: number;
     hoursPlanned: number;
     executionTime: number;
+    successMessage?: string;
   } | null>(null);
 
   useEffect(() => {
@@ -74,9 +75,9 @@ export default function ScheduleGeneratorPage() {
               id: item.id,
               name: item.name,
               subjects: Array.isArray(item.subjects) ? item.subjects.map((s: string) => String(s).toUpperCase()) : [String(item.subject || "MATHS").toUpperCase()],
-              maxHoursPerWeek: Number(item.max_hours_per_week || item.weekly_hours || 18),
+              maxHoursPerWeek: Number(item.max_hours_per_week || item.weekly_hours || 24),
               grade: Number(item.grade || 3),
-              unavailabilities: Object.keys(item.unavailabilities || {}),
+              unavailabilities: item.unavailabilities || {},
             }));
           }
 
@@ -112,8 +113,6 @@ export default function ScheduleGeneratorPage() {
   }, []);
 
   const handleGenerate = async () => {
-    console.log("1. BOUTON CLIQUÉ ! Classes:", rawClasses.length, "Profs:", rawTeachers.length);
-
     if (rawClasses.length === 0 || rawTeachers.length === 0) {
       alert("Veuillez d'abord configurer au moins une classe et un enseignant.");
       return;
@@ -195,10 +194,7 @@ export default function ScheduleGeneratorPage() {
       });
     });
 
-    console.log("2. REQUÊTES GÉNÉRÉES, total requêtes :", requests.length);
-
     const result = await schedulingEngine.generate(requests, availabilities);
-    console.log("3. MOTEUR TERMINÉ, résultat :", result);
 
     if (!result.success && result.message) {
       alert("⚠️ Erreur de faisabilité :\n\n" + result.message);
@@ -228,28 +224,31 @@ export default function ScheduleGeneratorPage() {
       };
     });
 
-    console.log("4. ENTRÉES PRÉPARÉES POUR SUPABASE :", entries.length);
-
     localStorage.setItem("edutime_timetable_entries_v1", JSON.stringify(entries));
 
     if (supabase && entries.length > 0) {
       try {
         await supabase.from("timetable_entries").delete().neq("id", "00000000-0000-0000-0000-000000000000");
         await supabase.from("timetable_entries").insert(entries);
-        console.log("5. SAUVEGARDE SUPABASE RÉUSSIE");
-      } catch (e) { console.error("Erreur insertion Supabase :", e); }
+      } catch (e) { console.error(e); }
     }
+
+    const confirmationText = `Emploi du temps généré avec succès ! ${result.stats.total_hours_assigned} créneaux placés sur ${result.stats.total_hours_required} demandés.`;
 
     setStats({
       successRate: result.stats.assignment_percentage,
       conflicts: result.stats.total_hours_required - result.stats.total_hours_assigned,
       hoursPlanned: result.stats.total_hours_assigned,
       executionTime: result.stats.generation_time_ms,
+      successMessage: confirmationText,
     });
 
     setIsGenerating(false);
-    console.log("6. FIN DU PROCESSUS - AFFICHAGE DE L'ALERTE");
-    alert(`Emploi du temps généré ! ${result.stats.total_hours_assigned} créneaux placés sur ${result.stats.total_hours_required} demandés.`);
+    
+    // Forçage de l'affichage de la confirmation visuelle et par alerte
+    setTimeout(() => {
+      alert(confirmationText);
+    }, 100);
   };
 
   if (!isMounted) return <div className="p-8 text-xs text-slate-400">Chargement...</div>;
@@ -311,38 +310,47 @@ export default function ScheduleGeneratorPage() {
       </Card>
 
       {stats && (
-        <div className="grid gap-4 md:grid-cols-4">
-          <Card className="border-slate-800 bg-emerald-950/20">
-            <CardContent className="pt-4">
-              <div className="text-[10px] text-slate-400 uppercase font-bold">Taux de réussite</div>
-              <div className="text-2xl font-black text-emerald-400 flex items-center gap-2 mt-1">
-                <CheckCircle2 className="size-5" /> {stats.successRate}%
-              </div>
-            </CardContent>
-          </Card>
+        <div className="space-y-4">
+          {stats.successMessage && (
+            <div className="bg-emerald-950/40 border border-emerald-800 text-emerald-300 p-4 rounded-xl text-xs font-bold flex items-center gap-3">
+              <CheckCircle2 className="size-5 text-emerald-400 shrink-0" />
+              <span>{stats.successMessage}</span>
+            </div>
+          )}
 
-          <Card className="border-slate-800 bg-slate-900/50">
-            <CardContent className="pt-4">
-              <div className="text-[10px] text-slate-400 uppercase font-bold">Cours non placés</div>
-              <div className="text-2xl font-black text-amber-400 flex items-center gap-2 mt-1">
-                <AlertTriangle className="size-5" /> {stats.conflicts}
-              </div>
-            </CardContent>
-          </Card>
+          <div className="grid gap-4 md:grid-cols-4">
+            <Card className="border-slate-800 bg-emerald-950/20">
+              <CardContent className="pt-4">
+                <div className="text-[10px] text-slate-400 uppercase font-bold">Taux de réussite</div>
+                <div className="text-2xl font-black text-emerald-400 flex items-center gap-2 mt-1">
+                  <CheckCircle2 className="size-5" /> {stats.successRate}%
+                </div>
+              </CardContent>
+            </Card>
 
-          <Card className="border-slate-800 bg-slate-900/50">
-            <CardContent className="pt-4">
-              <div className="text-[10px] text-slate-400 uppercase font-bold">Heures planifiées</div>
-              <div className="text-2xl font-black text-white mt-1">{stats.hoursPlanned} h</div>
-            </CardContent>
-          </Card>
+            <Card className="border-slate-800 bg-slate-900/50">
+              <CardContent className="pt-4">
+                <div className="text-[10px] text-slate-400 uppercase font-bold">Cours non placés</div>
+                <div className="text-2xl font-black text-amber-400 flex items-center gap-2 mt-1">
+                  <AlertTriangle className="size-5" /> {stats.conflicts}
+                </div>
+              </CardContent>
+            </Card>
 
-          <Card className="border-slate-800 bg-slate-900/50">
-            <CardContent className="pt-4">
-              <div className="text-[10px] text-slate-400 uppercase font-bold">Temps d&apos;exécution</div>
-              <div className="text-2xl font-black text-slate-300 mt-1">{stats.executionTime} ms</div>
-            </CardContent>
-          </Card>
+            <Card className="border-slate-800 bg-slate-900/50">
+              <CardContent className="pt-4">
+                <div className="text-[10px] text-slate-400 uppercase font-bold">Heures planifiées</div>
+                <div className="text-2xl font-black text-white mt-1">{stats.hoursPlanned} h</div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-slate-800 bg-slate-900/50">
+              <CardContent className="pt-4">
+                <div className="text-[10px] text-slate-400 uppercase font-bold">Temps d&apos;exécution</div>
+                <div className="text-2xl font-black text-slate-300 mt-1">{stats.executionTime} ms</div>
+              </CardContent>
+            </Card>
+          </div>
         </div>
       )}
     </div>
