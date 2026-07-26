@@ -7,7 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Users, GraduationCap, Building2, Calendar, Play, CheckCircle2, AlertTriangle, Clock } from "lucide-react";
 
-type DayOfWeek = 'Lundi' | 'Mardi' | 'Mercredi' | 'Jeudi' | 'Vendredi';
+// ✅ IMPORTATION DU NOUVEAU MOTEUR DE GÉNÉRATION
+import { schedulingEngine, CourseRequest } from "@/lib/scheduling/engine"; 
 
 interface Teacher {
   id: string;
@@ -33,38 +34,7 @@ interface ClassGroup {
   doubleVacation?: 'A' | 'B' | 'none';
 }
 
-interface AllocationRequest {
-  classGroupId: string;
-  subjectId: string;
-  teacherId: string;
-  blockSize: number;
-  actualHours?: number;
-}
-
-const DAYS: DayOfWeek[] = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
-const TIME_SLOTS = [
-  { id: "M1", period: "Matin" }, { id: "M2", period: "Matin" }, { id: "M3", period: "Matin" }, { id: "M4", period: "Matin" }, { id: "M5", period: "Matin" },
-  { id: "A1", period: "Après-midi" }, { id: "A2", period: "Après-midi" }, { id: "A3", period: "Après-midi" }, { id: "A4", period: "Après-midi" }, { id: "A5", period: "Après-midi" }
-];
-
-const isSlotBlockedByDoubleVacation = (doubleVacation: 'A' | 'B' | 'none' | undefined, day: DayOfWeek, slotId: string, strict: boolean): boolean => {
-  if (!doubleVacation || doubleVacation === 'none') return false;
-  const slot = TIME_SLOTS.find(s => s.id === slotId);
-  if (!slot) return false;
-
-  // Si non-strict (mode secours pour placer les heures restantes)
-  if (!strict && day === 'Mercredi') return false;
-
-  if (['Lundi', 'Mercredi', 'Vendredi'].includes(day)) {
-    if (doubleVacation === 'A') return slot.period === 'Après-midi';
-    if (doubleVacation === 'B') return slot.period === 'Matin';
-  }
-  if (['Mardi', 'Jeudi'].includes(day)) {
-    if (doubleVacation === 'A') return slot.period === 'Matin';
-    if (doubleVacation === 'B') return slot.period === 'Après-midi';
-  }
-  return false;
-};
+const SLOT_MAP = ["M1", "M2", "M3", "M4", "M5", "A1", "A2", "A3", "A4", "A5"];
 
 export default function ScheduleGeneratorPage() {
   const supabase = createClient();
@@ -124,7 +94,7 @@ export default function ScheduleGeneratorPage() {
             r = rRes.data.map((item: any) => ({
               id: item.id,
               name: item.name,
-              type: String(item.type || "Standard").toLowerCase().includes("lab") ? "Lab" : String(item.type || "Standard").toLowerCase().includes("sport") ? "Sports" : "Standard",
+              type: String(item.type || "Standard").toLowerCase().includes("lab") ? "Lab" : "Standard",
               capacity: Number(item.capacity || 50),
             }));
           }
@@ -147,136 +117,89 @@ export default function ScheduleGeneratorPage() {
     }
 
     setIsGenerating(true);
-    const startTimeMs = Date.now();
 
-    const teacherSchedules: Record<string, Record<string, string>> = {};
-    const classSchedules: Record<string, Record<string, { subjectId: string; teacherId: string; roomId: string }>> = {};
-    const roomSchedules: Record<string, Record<string, string>> = {};
+    // 1. FORMATAGE DES DONNÉES POUR LE NOUVEAU MOTEUR
+    const requests: CourseRequest[] = [];
+    const availabilities: Record<string, number> = {};
 
-    rawTeachers.forEach(t => { teacherSchedules[t.id] = {}; });
-    rawClasses.forEach(c => { classSchedules[c.id] = {}; });
-    rawRooms.forEach(r => { roomSchedules[r.id] = {}; });
+    rawTeachers.forEach(t => {
+        availabilities[t.id] = t.maxHoursPerWeek;
+    });
 
-    const requests: AllocationRequest[] = [];
-
-    // 1. Préparation des requêtes de cours
     rawClasses.forEach(cg => {
       Object.entries(cg.subjectHours).forEach(([subId, totalHours]) => {
         const cleanSub = subId.toUpperCase();
-        
-        // Trouver prof
         const matchingTeacher = rawTeachers.find(t => t.subjects.includes(cleanSub)) || rawTeachers[0];
         if (!matchingTeacher) return;
 
         let rem = Number(totalHours) || 0;
         
-        // Pour les classes en double vacation, privilégier des blocs de 1h si la matière à beaucoup d'heures
+        // On découpe en blocs de 2h ou 1h
         while (rem >= 2) {
-          requests.push({ classGroupId: cg.id, subjectId: cleanSub, teacherId: matchingTeacher.id, blockSize: 2 });
+          requests.push({
+            id: `req_${cg.id}_${cleanSub}_${Math.random().toString(36).substring(7)}`,
+            classId: cg.id,
+            className: cg.name,
+            subject: cleanSub,
+            duration: 2,
+            teacherId: matchingTeacher.id,
+            requiresLab: ['SVT', 'PC', 'PHYSIQUE'].includes(cleanSub),
+            isEPS: cleanSub === 'EPS',
+            doubleVacation: cg.doubleVacation as "none" | "A" | "B"
+          });
           rem -= 2;
         }
         while (rem > 0) {
-          requests.push({ classGroupId: cg.id, subjectId: cleanSub, teacherId: matchingTeacher.id, blockSize: 1 });
+          requests.push({
+            id: `req_${cg.id}_${cleanSub}_${Math.random().toString(36).substring(7)}`,
+            classId: cg.id,
+            className: cg.name,
+            subject: cleanSub,
+            duration: 1,
+            teacherId: matchingTeacher.id,
+            requiresLab: ['SVT', 'PC', 'PHYSIQUE'].includes(cleanSub),
+            isEPS: cleanSub === 'EPS',
+            doubleVacation: cg.doubleVacation as "none" | "A" | "B"
+          });
           rem -= 1;
         }
       });
     });
 
-    // Tri prioritaire : 1er cycle et matières principales d'abord
-    requests.sort((a, b) => b.blockSize - a.blockSize);
+    // 2. APPEL DU NOUVEAU MOTEUR INTELLIGENT
+    const result = await schedulingEngine.generate(requests, availabilities);
 
-    const entries: any[] = [];
-    const unplaced: AllocationRequest[] = [];
-
-    // 2. Traitement par passe (Strict Vague -> Secours Vague)
-    for (const req of requests) {
-      const cg = rawClasses.find(c => c.id === req.classGroupId)!;
-      const teacher = rawTeachers.find(t => t.id === req.teacherId)!;
-      if (!cg || !teacher) continue;
-
-      let placed = false;
-
-      // Pass 1: Strict respect de la Vague
-      // Pass 2: Assouplissement si bloqué
-      for (const strictVacation of [true, false]) {
-        if (placed) break;
-
-        for (const day of DAYS) {
-          if (placed) break;
-
-          // Pas plus de 2h de la même matière par jour
-          let currentSubHoursOnDay = 0;
-          Object.entries(classSchedules[cg.id] || {}).forEach(([k, v]) => {
-            if (k.startsWith(`${day}-`) && v.subjectId === req.subjectId) currentSubHoursOnDay++;
-          });
-          if (currentSubHoursOnDay + req.blockSize > 2) continue;
-
-          for (let i = 0; i <= TIME_SLOTS.length - req.blockSize; i++) {
-            const slotsToTest = TIME_SLOTS.slice(i, i + req.blockSize);
-            
-            // Éviter la coupure de midi (M5 + A1)
-            const isLunchSpan = slotsToTest.some(s => s.period === 'Matin') && slotsToTest.some(s => s.period === 'Après-midi');
-            if (isLunchSpan) continue;
-
-            let ok = true;
-            for (const slot of slotsToTest) {
-              const key = `${day}-${slot.id}`;
-
-              // Mercredi après-midi réservé
-              if (day === 'Mercredi' && slot.period === 'Après-midi') { ok = false; break; }
-
-              // Rotation Vague A/B
-              if (isSlotBlockedByDoubleVacation(cg.doubleVacation, day, slot.id, strictVacation)) { ok = false; break; }
-
-              // Occupation Prof, Classe
-              if (teacherSchedules[teacher.id]?.[key]) { ok = false; break; }
-              if (classSchedules[cg.id]?.[key]) { ok = false; break; }
-              if (teacher.unavailabilities && teacher.unavailabilities.includes(key)) { ok = false; break; }
-            }
-
-            if (!ok) continue;
-
-            // Salle disponible
-            const freeRoom = rawRooms.find(r => !roomSchedules[r.id]?.[`${day}-${slotsToTest[0].id}`]) || rawRooms[0];
-            const roomName = freeRoom ? freeRoom.name : "Salle Standard";
-            const roomId = freeRoom ? freeRoom.id : "room_1";
-
-            // Enregistrement
-            slotsToTest.forEach(slot => {
-              const key = `${day}-${slot.id}`;
-              if (!teacherSchedules[teacher.id]) teacherSchedules[teacher.id] = {};
-              if (!classSchedules[cg.id]) classSchedules[cg.id] = {};
-              if (!roomSchedules[roomId]) roomSchedules[roomId] = {};
-
-              teacherSchedules[teacher.id][key] = cg.id;
-              classSchedules[cg.id][key] = { subjectId: req.subjectId, teacherId: teacher.id, roomId };
-              roomSchedules[roomId][key] = cg.id;
-
-              entries.push({
-                id: `entry_${cg.id}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-                day: day,
-                slot: slot.id,
-                slot_id: slot.id,
-                class_name: cg.name,
-                class_id: cg.id,
-                teacher_name: teacher.name,
-                teacher_id: teacher.id,
-                subject: req.subjectId,
-                room_name: roomName,
-                room_id: roomId,
-              });
-            });
-
-            placed = true;
-            break;
-          }
-        }
-      }
-
-      if (!placed) unplaced.push(req);
+    if (!result.success && result.message) {
+      alert("⚠️ Erreur de faisabilité :\n\n" + result.message);
+      setIsGenerating(false);
+      return;
     }
 
-    // Enregistrement final
+    // 3. TRANSFORMATION DU RÉSULTAT POUR SUPABASE
+    const entries: any[] = result.schedule.map(slot => {
+      const teacher = rawTeachers.find(t => t.id === slot.teacher);
+      const cg = rawClasses.find(c => c.id === slot.classId);
+      
+      // Conversion de l'index du moteur (ex: "slot_0") au format de l'UI (ex: "M1")
+      const timeIndex = parseInt(slot.timeSlot.split('_')[1]);
+      const realSlotId = SLOT_MAP[timeIndex] || "M1";
+
+      return {
+        id: `entry_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        day: slot.day,
+        slot: realSlotId,
+        slot_id: realSlotId,
+        class_name: cg?.name || "Classe",
+        class_id: slot.classId,
+        teacher_name: teacher?.name || "Inconnu",
+        teacher_id: slot.teacher,
+        subject: slot.subject,
+        room_name: slot.room,
+        room_id: "room_std", // À lier avec rawRooms plus tard
+      };
+    });
+
+    // 4. SAUVEGARDE EN BASE DE DONNÉES
     localStorage.setItem("edutime_timetable_entries_v1", JSON.stringify(entries));
 
     if (supabase && entries.length > 0) {
@@ -286,19 +209,16 @@ export default function ScheduleGeneratorPage() {
       } catch (e) { console.error(e); }
     }
 
-    const duration = Date.now() - startTimeMs;
-    const totalReqs = requests.length || 1;
-    const successRate = Math.round((entries.length / totalReqs) * 100);
-
+    // 5. MISE À JOUR DES STATISTIQUES
     setStats({
-      successRate: Math.min(100, successRate),
-      conflicts: unplaced.length,
-      hoursPlanned: entries.length,
-      executionTime: duration,
+      successRate: result.stats.assignment_percentage,
+      conflicts: result.stats.total_hours_required - result.stats.total_hours_assigned,
+      hoursPlanned: result.stats.total_hours_assigned,
+      executionTime: result.stats.generation_time_ms,
     });
 
     setIsGenerating(false);
-    alert(`Emploi du temps généré ! ${entries.length} créneaux placés avec succès sur ${totalReqs} demandés.`);
+    alert(`Emploi du temps généré ! ${result.stats.total_hours_assigned} créneaux placés sur ${result.stats.total_hours_required} demandés.`);
   };
 
   if (!isMounted) return <div className="p-8 text-xs text-slate-400">Chargement...</div>;
@@ -354,7 +274,7 @@ export default function ScheduleGeneratorPage() {
             className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs h-12 px-6 rounded-xl shrink-0 cursor-pointer"
           >
             {isGenerating ? <Clock className="size-4 animate-spin mr-2" /> : <Play className="size-4 fill-white mr-2" />}
-            GÉNÉRER L&apos;EMPLOI DU TEMPS
+            {isGenerating ? "RECHERCHE EN COURS (Max 8s)..." : "GÉNÉRER L'EMPLOI DU TEMPS"}
           </Button>
         </div>
       </Card>
