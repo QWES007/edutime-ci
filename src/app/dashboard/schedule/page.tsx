@@ -9,31 +9,6 @@ import { Users, GraduationCap, Building2, Calendar, Play, CheckCircle2, AlertTri
 
 import { schedulingEngine, CourseRequest } from "@/lib/scheduling/engine"; 
 
-interface Teacher {
-  id: string;
-  name: string;
-  subjects: string[];
-  maxHoursPerWeek: number;
-  grade: number;
-  unavailabilities: Record<string, boolean>;
-}
-
-interface Room {
-  id: string;
-  name: string;
-  type: string;
-  capacity: number;
-}
-
-interface ClassGroup {
-  id: string;
-  name: string;
-  level: string;
-  studentCount: number;
-  subjectHours: Record<string, number>;
-  doubleVacation?: 'A' | 'B' | 'none';
-}
-
 const SLOT_MAP = ["M1", "M2", "M3", "M4", "M5", "A1", "A2", "A3", "A4", "A5"];
 
 export default function ScheduleGeneratorPage() {
@@ -41,226 +16,180 @@ export default function ScheduleGeneratorPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [dataCount, setDataCount] = useState({ teachers: 0, classes: 0, rooms: 0 });
 
-  const [rawTeachers, setRawTeachers] = useState<Teacher[]>([]);
-  const [rawClasses, setRawClasses] = useState<ClassGroup[]>([]);
-  const [rawRooms, setRawRooms] = useState<Room[]>([]);
+  const [rawTeachers, setRawTeachers] = useState<any[]>([]);
+  const [rawClasses, setRawClasses] = useState<any[]>([]);
+  const [rawRooms, setRawRooms] = useState<any[]>([]);
 
-  const [stats, setStats] = useState<{
-    successRate: number;
-    conflicts: number;
-    hoursPlanned: number;
-    executionTime: number;
-    successMessage?: string;
-  } | null>(null);
+  const [stats, setStats] = useState<any>(null);
 
   useEffect(() => {
     setIsMounted(true);
-
     const loadRealData = async () => {
       const supabase = createClient();
-      let t: Teacher[] = [];
-      let c: ClassGroup[] = [];
-      let r: Room[] = [];
+      if (!supabase) return;
 
-      if (supabase) {
-        try {
-          const [tRes, cRes, rRes] = await Promise.all([
-            supabase.from("teachers").select("*"),
-            supabase.from("classgroups").select("*"),
-            supabase.from("rooms").select("*"),
-          ]);
+      try {
+        const [tRes, cRes, rRes] = await Promise.all([
+          supabase.from("teachers").select("*"),
+          supabase.from("classgroups").select("*"),
+          supabase.from("rooms").select("*"),
+        ]);
 
-          if (tRes.data) {
-            t = tRes.data.map((item: any) => ({
-              id: item.id,
-              name: item.name,
-              subjects: Array.isArray(item.subjects) ? item.subjects.map((s: string) => String(s).toUpperCase()) : [String(item.subject || "MATHS").toUpperCase()],
-              maxHoursPerWeek: Number(item.max_hours_per_week || item.weekly_hours || 24),
-              grade: Number(item.grade || 3),
-              unavailabilities: item.unavailabilities || {},
-            }));
-          }
+        if (tRes.data) setRawTeachers(tRes.data);
+        if (cRes.data) setRawClasses(cRes.data);
+        if (rRes.data) setRawRooms(rRes.data);
 
-          if (cRes.data) {
-            c = cRes.data.map((item: any) => ({
-              id: item.id,
-              name: item.name,
-              level: item.level || "6ème",
-              studentCount: Number(item.student_count || 45),
-              subjectHours: item.subject_hours || {},
-              doubleVacation: item.double_vacation || "none",
-            }));
-          }
-
-          if (rRes.data) {
-            r = rRes.data.map((item: any) => ({
-              id: item.id,
-              name: item.name,
-              type: String(item.type || "Standard").toLowerCase().includes("lab") ? "Lab" : "Standard",
-              capacity: Number(item.capacity || 50),
-            }));
-          }
-        } catch (e) { console.error("Erreur Supabase :", e); }
+        setDataCount({
+          teachers: tRes.data?.length || 0,
+          classes: cRes.data?.length || 0,
+          rooms: rRes.data?.length || 0,
+        });
+      } catch (e) {
+        console.error("Erreur de chargement Supabase:", e);
       }
-
-      setRawTeachers(t);
-      setRawClasses(c);
-      setRawRooms(r);
-      setDataCount({ teachers: t.length, classes: c.length, rooms: r.length });
     };
 
     loadRealData();
   }, []);
 
   const handleGenerate = async () => {
+    alert("Bouton cliqué ! Lancement de la génération...");
+
     if (rawClasses.length === 0 || rawTeachers.length === 0) {
-      alert("Veuillez d'abord configurer au moins une classe et un enseignant.");
+      alert("Attention : Aucune classe ou aucun enseignant trouvé dans la base.");
       return;
     }
 
     setIsGenerating(true);
 
-    const requests: CourseRequest[] = [];
-    const availabilities: Record<string, number> = {};
+    try {
+      const requests: CourseRequest[] = [];
+      const availabilities: Record<string, number> = {};
 
-    rawTeachers.forEach(t => {
-        availabilities[t.id] = t.maxHoursPerWeek;
-    });
-
-    const teacherAssignedHours: Record<string, number> = {};
-    rawTeachers.forEach(t => { teacherAssignedHours[t.id] = 0; });
-
-    rawClasses.forEach(cg => {
-      const isSecondCycle = ['Terminale', '1ère', '2nde', 'Tle', '1er'].some(l => cg.level.includes(l));
-
-      Object.entries(cg.subjectHours).forEach(([subId, totalHours]) => {
-        const cleanSub = subId.toUpperCase();
-        
-        const matchingTeachers = rawTeachers
-          .filter(t => t.subjects.includes(cleanSub))
-          .sort((a, b) => {
-            const gradeA = a.grade || 3;
-            const gradeB = b.grade || 3;
-            if (isSecondCycle) {
-              return gradeA - gradeB;
-            } else {
-              return gradeB - gradeA;
-            }
-          });
-
-        let selectedTeacher = matchingTeachers.find(t => {
-          const currentHours = teacherAssignedHours[t.id] || 0;
-          return (currentHours + Number(totalHours)) <= t.maxHoursPerWeek;
-        });
-
-        if (!selectedTeacher && matchingTeachers.length > 0) {
-          selectedTeacher = matchingTeachers[0];
-        }
-
-        if (!selectedTeacher) return;
-
-        teacherAssignedHours[selectedTeacher.id] = (teacherAssignedHours[selectedTeacher.id] || 0) + Number(totalHours);
-
-        let rem = Number(totalHours) || 0;
-        
-        while (rem >= 2) {
-          requests.push({
-            id: `req_${cg.id}_${cleanSub}_${Math.random().toString(36).substring(7)}`,
-            classId: cg.id,
-            className: cg.name,
-            subject: cleanSub,
-            duration: 2,
-            teacherId: selectedTeacher.id,
-            requiresLab: ['SVT', 'PC', 'PHYSIQUE'].includes(cleanSub),
-            isEPS: cleanSub === 'EPS',
-            doubleVacation: cg.doubleVacation as "none" | "A" | "B"
-          });
-          rem -= 2;
-        }
-        while (rem > 0) {
-          requests.push({
-            id: `req_${cg.id}_${cleanSub}_${Math.random().toString(36).substring(7)}`,
-            classId: cg.id,
-            className: cg.name,
-            subject: cleanSub,
-            duration: 1,
-            teacherId: selectedTeacher.id,
-            requiresLab: ['SVT', 'PC', 'PHYSIQUE'].includes(cleanSub),
-            isEPS: cleanSub === 'EPS',
-            doubleVacation: cg.doubleVacation as "none" | "A" | "B"
-          });
-          rem -= 1;
-        }
+      rawTeachers.forEach(t => {
+        availabilities[t.id] = Number(t.max_hours_per_week || 24);
       });
-    });
 
-    const result = await schedulingEngine.generate(requests, availabilities);
+      const teacherAssignedHours: Record<string, number> = {};
+      rawTeachers.forEach(t => { teacherAssignedHours[t.id] = 0; });
 
-    if (!result.success && result.message) {
-      alert("⚠️ Erreur de faisabilité :\n\n" + result.message);
-      setIsGenerating(false);
-      return;
-    }
+      rawClasses.forEach(cg => {
+        const level = cg.level || "";
+        const isSecondCycle = ['Terminale', '1ère', '2nde', 'Tle', '1er'].some(l => level.includes(l));
+        const subjectHours = cg.subject_hours || {};
 
-    const entries: any[] = result.schedule.map(slot => {
-      const teacher = rawTeachers.find(t => t.id === slot.teacher);
-      const cg = rawClasses.find(c => c.id === slot.classId);
-      
-      const timeIndex = parseInt(slot.timeSlot.split('_')[1]);
-      const realSlotId = SLOT_MAP[timeIndex] || "M1";
+        Object.entries(subjectHours).forEach(([subId, totalHours]: [string, any]) => {
+          const cleanSub = subId.toUpperCase();
+          
+          const matchingTeachers = rawTeachers
+            .filter(t => {
+              const subs = Array.isArray(t.subjects) ? t.subjects : [t.subject || "MATHS"];
+              return subs.map((s: string) => s.toUpperCase()).includes(cleanSub);
+            })
+            .sort((a, b) => {
+              const gradeA = Number(a.grade || 3);
+              const gradeB = Number(b.grade || 3);
+              return isSecondCycle ? gradeA - gradeB : gradeB - gradeA;
+            });
 
-      return {
-        id: `entry_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-        day: slot.day,
-        slot: realSlotId,
-        slot_id: realSlotId,
-        class_name: cg?.name || "Classe",
-        class_id: slot.classId,
-        teacher_name: teacher?.name || "Inconnu",
-        teacher_id: slot.teacher,
-        subject: slot.subject,
-        room_name: slot.room,
-        room_id: "room_std",
-      };
-    });
+          let selectedTeacher = matchingTeachers.find(t => {
+            const currentHours = teacherAssignedHours[t.id] || 0;
+            return (currentHours + Number(totalHours)) <= Number(t.max_hours_per_week || 24);
+          });
 
-    if (typeof window !== "undefined") {
-      localStorage.setItem("edutime_timetable_entries_v1", JSON.stringify(entries));
-    }
+          if (!selectedTeacher && matchingTeachers.length > 0) {
+            selectedTeacher = matchingTeachers[0];
+          }
 
-    const supabase = createClient();
-    if (supabase && entries.length > 0) {
-      try {
+          if (!selectedTeacher) return;
+
+          teacherAssignedHours[selectedTeacher.id] = (teacherAssignedHours[selectedTeacher.id] || 0) + Number(totalHours);
+
+          let rem = Number(totalHours) || 0;
+          
+          while (rem >= 2) {
+            requests.push({
+              id: `req_${cg.id}_${cleanSub}_${Math.random().toString(36).substring(7)}`,
+              classId: cg.id,
+              className: cg.name,
+              subject: cleanSub,
+              duration: 2,
+              teacherId: selectedTeacher.id,
+              requiresLab: ['SVT', 'PC', 'PHYSIQUE'].includes(cleanSub),
+              isEPS: cleanSub === 'EPS',
+              doubleVacation: cg.double_vacation || "none"
+            });
+            rem -= 2;
+          }
+          while (rem > 0) {
+            requests.push({
+              id: `req_${cg.id}_${cleanSub}_${Math.random().toString(36).substring(7)}`,
+              classId: cg.id,
+              className: cg.name,
+              subject: cleanSub,
+              duration: 1,
+              teacherId: selectedTeacher.id,
+              requiresLab: ['SVT', 'PC', 'PHYSIQUE'].includes(cleanSub),
+              isEPS: cleanSub === 'EPS',
+              doubleVacation: cg.double_vacation || "none"
+            });
+            rem -= 1;
+          }
+        });
+      });
+
+      const result = await schedulingEngine.generate(requests, availabilities);
+
+      if (!result.success) {
+        alert("⚠️ Erreur de faisabilité : " + (result.message || "Conflit dans les contraintes horaires."));
+        setIsGenerating(false);
+        return;
+      }
+
+      const entries = result.schedule.map((slot: any) => {
+        const teacher = rawTeachers.find(t => t.id === slot.teacher);
+        const cg = rawClasses.find(c => c.id === slot.classId);
+        const timeIndex = parseInt(slot.timeSlot.split('_')[1]) || 0;
+        const realSlotId = SLOT_MAP[timeIndex] || "M1";
+
+        return {
+          id: `entry_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+          day: slot.day,
+          slot: realSlotId,
+          slot_id: realSlotId,
+          class_name: cg?.name || "Classe",
+          class_id: slot.classId,
+          teacher_name: teacher?.name || "Inconnu",
+          teacher_id: slot.teacher,
+          subject: slot.subject,
+          room_name: slot.room,
+          room_id: "room_std",
+        };
+      });
+
+      const supabase = createClient();
+      if (supabase && entries.length > 0) {
         await supabase.from("timetable_entries").delete().neq("id", "00000000-0000-0000-0000-000000000000");
         await supabase.from("timetable_entries").insert(entries);
-      } catch (e) { console.error(e); }
+      }
+
+      setStats({
+        successRate: result.stats.assignment_percentage,
+        conflicts: result.stats.total_hours_required - result.stats.total_hours_assigned,
+        hoursPlanned: result.stats.total_hours_assigned,
+        executionTime: result.stats.generation_time_ms,
+      });
+
+      alert(`Succès ! ${result.stats.total_hours_assigned} créneaux placés sur ${result.stats.total_hours_required}.`);
+    } catch (err) {
+      console.error("Erreur critique lors de la génération :", err);
+      alert("Une erreur technique est survenue. Vérifiez la console.");
+    } finally {
+      setIsGenerating(false);
     }
-
-    const confirmationText = `Emploi du temps généré avec succès ! ${result.stats.total_hours_assigned} créneaux placés sur ${result.stats.total_hours_required} demandés.`;
-
-    setStats({
-      successRate: result.stats.assignment_percentage,
-      conflicts: result.stats.total_hours_required - result.stats.total_hours_assigned,
-      hoursPlanned: result.stats.total_hours_assigned,
-      executionTime: result.stats.generation_time_ms,
-      successMessage: confirmationText,
-    });
-
-    setIsGenerating(false);
-    
-    setTimeout(() => {
-      alert(confirmationText);
-    }, 100);
   };
 
-  // Bloque le rendu pendant le Server Side Rendering pour éliminer l'erreur 418
-  if (!isMounted) {
-    return (
-      <div className="p-8 text-xs text-slate-400 flex items-center justify-center min-h-[400px]">
-        <Clock className="size-5 animate-spin mr-2 text-emerald-400" /> Chargement du moteur...
-      </div>
-    );
-  }
+  if (!isMounted) return <div className="p-8 text-xs text-slate-400">Chargement...</div>;
 
   return (
     <div className="p-8 space-y-6 max-w-7xl mx-auto">
@@ -308,58 +237,50 @@ export default function ScheduleGeneratorPage() {
           </div>
 
           <Button
+            type="button"
             onClick={handleGenerate}
             disabled={isGenerating}
             className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs h-12 px-6 rounded-xl shrink-0 cursor-pointer"
           >
             {isGenerating ? <Clock className="size-4 animate-spin mr-2" /> : <Play className="size-4 fill-white mr-2" />}
-            {isGenerating ? "RECHERCHE EN COURS (Max 8s)..." : "GÉNÉRER L'EMPLOI DU TEMPS"}
+            {isGenerating ? "RECHERCHE EN COURS..." : "GÉNÉRER L'EMPLOI DU TEMPS"}
           </Button>
         </div>
       </Card>
 
       {stats && (
-        <div className="space-y-4">
-          {stats.successMessage && (
-            <div className="bg-emerald-950/40 border border-emerald-800 text-emerald-300 p-4 rounded-xl text-xs font-bold flex items-center gap-3">
-              <CheckCircle2 className="size-5 text-emerald-400 shrink-0" />
-              <span>{stats.successMessage}</span>
-            </div>
-          )}
+        <div className="grid gap-4 md:grid-cols-4">
+          <Card className="border-slate-800 bg-emerald-950/20">
+            <CardContent className="pt-4">
+              <div className="text-[10px] text-slate-400 uppercase font-bold">Taux de réussite</div>
+              <div className="text-2xl font-black text-emerald-400 flex items-center gap-2 mt-1">
+                <CheckCircle2 className="size-5" /> {stats.successRate}%
+              </div>
+            </CardContent>
+          </Card>
 
-          <div className="grid gap-4 md:grid-cols-4">
-            <Card className="border-slate-800 bg-emerald-950/20">
-              <CardContent className="pt-4">
-                <div className="text-[10px] text-slate-400 uppercase font-bold">Taux de réussite</div>
-                <div className="text-2xl font-black text-emerald-400 flex items-center gap-2 mt-1">
-                  <CheckCircle2 className="size-5" /> {stats.successRate}%
-                </div>
-              </CardContent>
-            </Card>
+          <Card className="border-slate-800 bg-slate-900/50">
+            <CardContent className="pt-4">
+              <div className="text-[10px] text-slate-400 uppercase font-bold">Cours non placés</div>
+              <div className="text-2xl font-black text-amber-400 flex items-center gap-2 mt-1">
+                <AlertTriangle className="size-5" /> {stats.conflicts}
+              </div>
+            </CardContent>
+          </Card>
 
-            <Card className="border-slate-800 bg-slate-900/50">
-              <CardContent className="pt-4">
-                <div className="text-[10px] text-slate-400 uppercase font-bold">Cours non placés</div>
-                <div className="text-2xl font-black text-amber-400 flex items-center gap-2 mt-1">
-                  <AlertTriangle className="size-5" /> {stats.conflicts}
-                </div>
-              </CardContent>
-            </Card>
+          <Card className="border-slate-800 bg-slate-900/50">
+            <CardContent className="pt-4">
+              <div className="text-[10px] text-slate-400 uppercase font-bold">Heures planifiées</div>
+              <div className="text-2xl font-black text-white mt-1">{stats.hoursPlanned} h</div>
+            </CardContent>
+          </Card>
 
-            <Card className="border-slate-800 bg-slate-900/50">
-              <CardContent className="pt-4">
-                <div className="text-[10px] text-slate-400 uppercase font-bold">Heures planifiées</div>
-                <div className="text-2xl font-black text-white mt-1">{stats.hoursPlanned} h</div>
-              </CardContent>
-            </Card>
-
-            <Card className="border-slate-800 bg-slate-900/50">
-              <CardContent className="pt-4">
-                <div className="text-[10px] text-slate-400 uppercase font-bold">Temps d&apos;exécution</div>
-                <div className="text-2xl font-black text-slate-300 mt-1">{stats.executionTime} ms</div>
-              </CardContent>
-            </Card>
-          </div>
+          <Card className="border-slate-800 bg-slate-900/50">
+            <CardContent className="pt-4">
+              <div className="text-[10px] text-slate-400 uppercase font-bold">Temps d&apos;exécution</div>
+              <div className="text-2xl font-black text-slate-300 mt-1">{stats.executionTime} ms</div>
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>
