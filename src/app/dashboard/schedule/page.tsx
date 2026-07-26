@@ -112,7 +112,7 @@ export default function ScheduleGeneratorPage() {
   }, []);
 
   const handleGenerate = async () => {
-    console.log("BOUTON CLIQUÉ ! Données actuelles -> Classes:", rawClasses.length, "Profs:", rawTeachers.length);
+    console.log("1. BOUTON CLIQUÉ ! Classes:", rawClasses.length, "Profs:", rawTeachers.length);
 
     if (rawClasses.length === 0 || rawTeachers.length === 0) {
       alert("Veuillez d'abord configurer au moins une classe et un enseignant.");
@@ -195,7 +195,10 @@ export default function ScheduleGeneratorPage() {
       });
     });
 
+    console.log("2. REQUÊTES GÉNÉRÉES, total requêtes :", requests.length);
+
     const result = await schedulingEngine.generate(requests, availabilities);
+    console.log("3. MOTEUR TERMINÉ, résultat :", result);
 
     if (!result.success && result.message) {
       alert("⚠️ Erreur de faisabilité :\n\n" + result.message);
@@ -225,13 +228,16 @@ export default function ScheduleGeneratorPage() {
       };
     });
 
+    console.log("4. ENTRÉES PRÉPARÉES POUR SUPABASE :", entries.length);
+
     localStorage.setItem("edutime_timetable_entries_v1", JSON.stringify(entries));
 
     if (supabase && entries.length > 0) {
       try {
         await supabase.from("timetable_entries").delete().neq("id", "00000000-0000-0000-0000-000000000000");
         await supabase.from("timetable_entries").insert(entries);
-      } catch (e) { console.error(e); }
+        console.log("5. SAUVEGARDE SUPABASE RÉUSSIE");
+      } catch (e) { console.error("Erreur insertion Supabase :", e); }
     }
 
     setStats({
@@ -242,6 +248,7 @@ export default function ScheduleGeneratorPage() {
     });
 
     setIsGenerating(false);
+    console.log("6. FIN DU PROCESSUS - AFFICHAGE DE L'ALERTE");
     alert(`Emploi du temps généré ! ${result.stats.total_hours_assigned} créneaux placés sur ${result.stats.total_hours_required} demandés.`);
   };
 
