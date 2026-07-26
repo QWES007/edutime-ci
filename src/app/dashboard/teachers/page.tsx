@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { DashboardHeader } from "@/components/layout/dashboard-sidebar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Users, Upload, Plus, Trash2, Edit } from "lucide-react";
+import { Users, Upload, Trash2, Edit, X } from "lucide-react";
 import * as XLSX from "xlsx";
 
 interface Teacher {
@@ -22,6 +22,9 @@ export default function TeachersPage() {
   const [isMounted, setIsMounted] = useState(false);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+
+  // État pour la modification d'un enseignant
+  const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null);
 
   const fetchTeachers = async () => {
     if (!supabase) return;
@@ -97,6 +100,29 @@ export default function TeachersPage() {
     }
   };
 
+  // Enregistrement des modifications d'un enseignant
+  const handleUpdateTeacher = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTeacher || !supabase) return;
+
+    const { error } = await supabase
+      .from("teachers")
+      .update({
+        max_hours_per_week: Number(editingTeacher.maxHoursPerWeek),
+        grade: Number(editingTeacher.grade),
+      })
+      .eq("id", editingTeacher.id);
+
+    if (error) {
+      alert("Erreur lors de la mise à jour.");
+      console.error(error);
+    } else {
+      alert("Enseignant mis à jour avec succès !");
+      setEditingTeacher(null);
+      fetchTeachers();
+    }
+  };
+
   if (!isMounted) return <div className="p-8 text-xs text-slate-400">Chargement...</div>;
 
   return (
@@ -111,7 +137,7 @@ export default function TeachersPage() {
           <Users className="size-6 text-emerald-400" />
           <div>
             <h3 className="text-white font-bold">Total Enseignants : {teachers.length}</h3>
-            <p className="text-xs text-slate-400">Gérez vos enseignants ou importez une liste Excel (avec colonne VolumeHoraire)</p>
+            <p className="text-xs text-slate-400">Cliquez sur l'icône de modification sur une ligne pour ajuster ses heures ou son grade.</p>
           </div>
         </div>
 
@@ -142,7 +168,15 @@ export default function TeachersPage() {
                 <td className="p-4">{t.subjects.join(", ")}</td>
                 <td className="p-4 text-emerald-400 font-extrabold">{t.maxHoursPerWeek} h / semaine</td>
                 <td className="p-4">Grade {t.grade}</td>
-                <td className="p-4 text-right">
+                <td className="p-4 text-right space-x-2">
+                  <Button
+                    onClick={() => setEditingTeacher(t)}
+                    variant="ghost"
+                    size="sm"
+                    className="text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/20"
+                  >
+                    <Edit className="size-4" />
+                  </Button>
                   <Button
                     onClick={() => handleDelete(t.id)}
                     variant="ghost"
@@ -162,6 +196,65 @@ export default function TeachersPage() {
           </tbody>
         </table>
       </div>
+
+      {/* MODAL DE MODIFICATION */}
+      {editingTeacher && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-6">
+            <div className="flex justify-between items-center">
+              <h3 className="text-white font-bold text-base">Modifier : {editingTeacher.name}</h3>
+              <button onClick={() => setEditingTeacher(null)} className="text-slate-400 hover:text-white">
+                <X className="size-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateTeacher} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Volume Horaire Max (Hebdo)</label>
+                <input
+                  type="number"
+                  value={editingTeacher.maxHoursPerWeek}
+                  onChange={(e) => setEditingTeacher({ ...editingTeacher, maxHoursPerWeek: Number(e.target.value) })}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white text-xs"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Grade (Priorité)</label>
+                <select
+                  value={editingTeacher.grade}
+                  onChange={(e) => setEditingTeacher({ ...editingTeacher, grade: Number(e.target.value) })}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white text-xs"
+                >
+                  <option value={1}>Grade 1 (Très prioritaire - Second Cycle)</option>
+                  <option value={2}>Grade 2 (Prioritaire)</option>
+                  <option value={3}>Grade 3 (Standard)</option>
+                  <option value={4}>Grade 4</option>
+                  <option value={5}>Grade 5</option>
+                </select>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setEditingTeacher(null)}
+                  className="text-slate-400 hover:text-white text-xs"
+                >
+                  Annuler
+                </Button>
+                <Button
+                  type="submit"
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-6 py-2 rounded-xl"
+                >
+                  Enregistrer
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
