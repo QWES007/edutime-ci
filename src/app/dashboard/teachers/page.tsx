@@ -6,7 +6,7 @@ import { DashboardHeader } from "@/components/layout/dashboard-sidebar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Users, Upload, Plus, Trash2 } from "lucide-react";
-import * as XLSX from "xlsx"; // Assure-toi d'avoir installé xlsx (npm install xlsx)
+import * as XLSX from "xlsx";
 
 interface Teacher {
   id: string;
@@ -18,7 +18,7 @@ interface Teacher {
 
 export default function TeachersPage() {
   const supabase = createClient();
-  const [teachers, setTeachers] = Teacher[] = [];
+  const [teachers, setTeachers] = useState<Teacher[]>([]); // 🔧 Correction ici
   const [isUploading, setIsUploading] = useState(false);
 
   // Charger les enseignants depuis Supabase
@@ -30,7 +30,7 @@ export default function TeachersPage() {
         id: item.id,
         name: item.name,
         subjects: Array.isArray(item.subjects) ? item.subjects : [item.subject || "MATHS"],
-        maxHoursPerWeek: Number(item.max_hours_per_week || 18),
+        maxHoursPerWeek: Number(item.max_hours_per_week || 24),
         grade: Number(item.grade || 3),
       })));
     }
@@ -59,8 +59,8 @@ export default function TeachersPage() {
         const formattedTeachers = data.map((row: any) => ({
           name: row.Nom || row.name || "Enseignant",
           subjects: row.Matiere || row.subjects ? String(row.Matiere || row.subjects).split(",").map(s => s.trim().toUpperCase()) : ["MATHS"],
-          max_hours_per_week: Number(row.VolumeHoraire || row.max_hours_per_week || 24), // 📌 Colonne Excel lue ici
-          grade: Number(row.Grade || row.grade || 3),                                 // 📌 Colonne Grade lue ici
+          max_hours_per_week: Number(row.VolumeHoraire || row.max_hours_per_week || 24),
+          grade: Number(row.Grade || row.grade || 3),
           unavailabilities: {}
         }));
 
@@ -134,4 +134,4 @@ export default function TeachersPage() {
       </div>
     </div>
   );
-}
+}-
