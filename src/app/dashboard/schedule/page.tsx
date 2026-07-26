@@ -7,7 +7,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Users, GraduationCap, Building2, Calendar, Play, CheckCircle2, AlertTriangle, Clock } from "lucide-react";
 
-// ✅ IMPORTATION DU NOUVEAU MOTEUR DE GÉNÉRATION
 import { schedulingEngine, CourseRequest } from "@/lib/scheduling/engine"; 
 
 interface Teacher {
@@ -15,6 +14,7 @@ interface Teacher {
   name: string;
   subjects: string[];
   maxHoursPerWeek: number;
+  grade: number; // 1 = Priorité maximale (Second cycle), grades supérieurs = Premier cycle
   unavailabilities: string[];
 }
 
@@ -75,6 +75,7 @@ export default function ScheduleGeneratorPage() {
               name: item.name,
               subjects: Array.isArray(item.subjects) ? item.subjects.map((s: string) => String(s).toUpperCase()) : [String(item.subject || "MATHS").toUpperCase()],
               maxHoursPerWeek: Number(item.max_hours_per_week || item.weekly_hours || 18),
+              grade: Number(item.grade || 3), // Récupération du grade (Défaut: 3)
               unavailabilities: Object.keys(item.unavailabilities || {}),
             }));
           }
@@ -118,7 +119,6 @@ export default function ScheduleGeneratorPage() {
 
     setIsGenerating(true);
 
-    // 1. FORMATAGE DES DONNÉES POUR LE NOUVEAU MOTEUR
     const requests: CourseRequest[] = [];
     const availabilities: Record<string, number> = {};
 
@@ -126,15 +126,48 @@ export default function ScheduleGeneratorPage() {
         availabilities[t.id] = t.maxHoursPerWeek;
     });
 
+    // Suivi des heures déjà assignées par professeur pour respecter leur maxHoursPerWeek
+    const teacherAssignedHours: Record<string, number> = {};
+    rawTeachers.forEach(t => { teacherAssignedHours[t.id] = 0; });
+
+    // 1. Préparation des requêtes de cours avec priorisation par grade
     rawClasses.forEach(cg => {
+      const isSecondCycle = ['Terminale', '1ère', '2nde', 'Tle', '1er'].some(l => cg.level.includes(l));
+
       Object.entries(cg.subjectHours).forEach(([subId, totalHours]) => {
         const cleanSub = subId.toUpperCase();
-        const matchingTeacher = rawTeachers.find(t => t.subjects.includes(cleanSub)) || rawTeachers[0];
-        if (!matchingTeacher) return;
+        
+        // Filtrer les profs qui enseignent cette matière et les trier par grade (1 = prioritaire)
+        const matchingTeachers = rawTeachers
+          .filter(t => t.subjects.includes(cleanSub))
+          .sort((a, b) => {
+            const gradeA = a.grade || 3;
+            const gradeB = b.grade || 3;
+            if (isSecondCycle) {
+              return gradeA - gradeB; // Priorité aux petits grades (1, 2) pour le second cycle
+            } else {
+              return gradeB - gradeA; // Priorité inverse pour le premier cycle
+            }
+          });
+
+        // Trouver le meilleur enseignant disponible qui n'a pas explosé son quota
+        let selectedTeacher = matchingTeachers.find(t => {
+          const currentHours = teacherAssignedHours[t.id] || 0;
+          return (currentHours + Number(totalHours)) <= t.maxHoursPerWeek;
+        });
+
+        // Fallback si tous ont dépassé : on prend le premier de la liste par défaut
+        if (!selectedTeacher && matchingTeachers.length > 0) {
+          selectedTeacher = matchingTeachers[0];
+        }
+
+        if (!selectedTeacher) return;
+
+        // On comptabilise les heures pour ce prof
+        teacherAssignedHours[selectedTeacher.id] = (teacherAssignedHours[selectedTeacher.id] || 0) + Number(totalHours);
 
         let rem = Number(totalHours) || 0;
         
-        // On découpe en blocs de 2h ou 1h
         while (rem >= 2) {
           requests.push({
             id: `req_${cg.id}_${cleanSub}_${Math.random().toString(36).substring(7)}`,
@@ -142,7 +175,7 @@ export default function ScheduleGeneratorPage() {
             className: cg.name,
             subject: cleanSub,
             duration: 2,
-            teacherId: matchingTeacher.id,
+            teacherId: selectedTeacher.id,
             requiresLab: ['SVT', 'PC', 'PHYSIQUE'].includes(cleanSub),
             isEPS: cleanSub === 'EPS',
             doubleVacation: cg.doubleVacation as "none" | "A" | "B"
@@ -156,7 +189,7 @@ export default function ScheduleGeneratorPage() {
             className: cg.name,
             subject: cleanSub,
             duration: 1,
-            teacherId: matchingTeacher.id,
+            teacherId: selectedTeacher.id,
             requiresLab: ['SVT', 'PC', 'PHYSIQUE'].includes(cleanSub),
             isEPS: cleanSub === 'EPS',
             doubleVacation: cg.doubleVacation as "none" | "A" | "B"
@@ -166,7 +199,7 @@ export default function ScheduleGeneratorPage() {
       });
     });
 
-    // 2. APPEL DU NOUVEAU MOTEUR INTELLIGENT
+    // 2. APPEL DU MOTEUR DE GÉNÉRATION INTELLIGENT
     const result = await schedulingEngine.generate(requests, availabilities);
 
     if (!result.success && result.message) {
@@ -180,7 +213,6 @@ export default function ScheduleGeneratorPage() {
       const teacher = rawTeachers.find(t => t.id === slot.teacher);
       const cg = rawClasses.find(c => c.id === slot.classId);
       
-      // Conversion de l'index du moteur (ex: "slot_0") au format de l'UI (ex: "M1")
       const timeIndex = parseInt(slot.timeSlot.split('_')[1]);
       const realSlotId = SLOT_MAP[timeIndex] || "M1";
 
@@ -195,7 +227,7 @@ export default function ScheduleGeneratorPage() {
         teacher_id: slot.teacher,
         subject: slot.subject,
         room_name: slot.room,
-        room_id: "room_std", // À lier avec rawRooms plus tard
+        room_id: "room_std",
       };
     });
 
@@ -264,7 +296,7 @@ export default function ScheduleGeneratorPage() {
               Lancer la génération automatique
             </h3>
             <p className="text-xs text-slate-300 mt-1">
-              Distribution intelligente des cours avec lissage de la Double Vacation.
+              Distribution intelligente des cours avec lissage de la Double Vacation et priorisation par grade.
             </p>
           </div>
 
