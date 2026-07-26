@@ -14,7 +14,7 @@ interface Teacher {
   name: string;
   subjects: string[];
   maxHoursPerWeek: number;
-  grade: number; // 1 = Priorité maximale (Second cycle), grades supérieurs = Premier cycle
+  grade: number;
   unavailabilities: string[];
 }
 
@@ -75,7 +75,7 @@ export default function ScheduleGeneratorPage() {
               name: item.name,
               subjects: Array.isArray(item.subjects) ? item.subjects.map((s: string) => String(s).toUpperCase()) : [String(item.subject || "MATHS").toUpperCase()],
               maxHoursPerWeek: Number(item.max_hours_per_week || item.weekly_hours || 18),
-              grade: Number(item.grade || 3), // Récupération du grade (Défaut: 3)
+              grade: Number(item.grade || 3),
               unavailabilities: Object.keys(item.unavailabilities || {}),
             }));
           }
@@ -112,6 +112,8 @@ export default function ScheduleGeneratorPage() {
   }, []);
 
   const handleGenerate = async () => {
+    console.log("BOUTON CLIQUÉ ! Données actuelles -> Classes:", rawClasses.length, "Profs:", rawTeachers.length);
+
     if (rawClasses.length === 0 || rawTeachers.length === 0) {
       alert("Veuillez d'abord configurer au moins une classe et un enseignant.");
       return;
@@ -126,44 +128,38 @@ export default function ScheduleGeneratorPage() {
         availabilities[t.id] = t.maxHoursPerWeek;
     });
 
-    // Suivi des heures déjà assignées par professeur pour respecter leur maxHoursPerWeek
     const teacherAssignedHours: Record<string, number> = {};
     rawTeachers.forEach(t => { teacherAssignedHours[t.id] = 0; });
 
-    // 1. Préparation des requêtes de cours avec priorisation par grade
     rawClasses.forEach(cg => {
       const isSecondCycle = ['Terminale', '1ère', '2nde', 'Tle', '1er'].some(l => cg.level.includes(l));
 
       Object.entries(cg.subjectHours).forEach(([subId, totalHours]) => {
         const cleanSub = subId.toUpperCase();
         
-        // Filtrer les profs qui enseignent cette matière et les trier par grade (1 = prioritaire)
         const matchingTeachers = rawTeachers
           .filter(t => t.subjects.includes(cleanSub))
           .sort((a, b) => {
             const gradeA = a.grade || 3;
             const gradeB = b.grade || 3;
             if (isSecondCycle) {
-              return gradeA - gradeB; // Priorité aux petits grades (1, 2) pour le second cycle
+              return gradeA - gradeB;
             } else {
-              return gradeB - gradeA; // Priorité inverse pour le premier cycle
+              return gradeB - gradeA;
             }
           });
 
-        // Trouver le meilleur enseignant disponible qui n'a pas explosé son quota
         let selectedTeacher = matchingTeachers.find(t => {
           const currentHours = teacherAssignedHours[t.id] || 0;
           return (currentHours + Number(totalHours)) <= t.maxHoursPerWeek;
         });
 
-        // Fallback si tous ont dépassé : on prend le premier de la liste par défaut
         if (!selectedTeacher && matchingTeachers.length > 0) {
           selectedTeacher = matchingTeachers[0];
         }
 
         if (!selectedTeacher) return;
 
-        // On comptabilise les heures pour ce prof
         teacherAssignedHours[selectedTeacher.id] = (teacherAssignedHours[selectedTeacher.id] || 0) + Number(totalHours);
 
         let rem = Number(totalHours) || 0;
@@ -199,7 +195,6 @@ export default function ScheduleGeneratorPage() {
       });
     });
 
-    // 2. APPEL DU MOTEUR DE GÉNÉRATION INTELLIGENT
     const result = await schedulingEngine.generate(requests, availabilities);
 
     if (!result.success && result.message) {
@@ -208,7 +203,6 @@ export default function ScheduleGeneratorPage() {
       return;
     }
 
-    // 3. TRANSFORMATION DU RÉSULTAT POUR SUPABASE
     const entries: any[] = result.schedule.map(slot => {
       const teacher = rawTeachers.find(t => t.id === slot.teacher);
       const cg = rawClasses.find(c => c.id === slot.classId);
@@ -231,7 +225,6 @@ export default function ScheduleGeneratorPage() {
       };
     });
 
-    // 4. SAUVEGARDE EN BASE DE DONNÉES
     localStorage.setItem("edutime_timetable_entries_v1", JSON.stringify(entries));
 
     if (supabase && entries.length > 0) {
@@ -241,7 +234,6 @@ export default function ScheduleGeneratorPage() {
       } catch (e) { console.error(e); }
     }
 
-    // 5. MISE À JOUR DES STATISTIQUES
     setStats({
       successRate: result.stats.assignment_percentage,
       conflicts: result.stats.total_hours_required - result.stats.total_hours_assigned,
