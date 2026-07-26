@@ -37,7 +37,6 @@ interface ClassGroup {
 const SLOT_MAP = ["M1", "M2", "M3", "M4", "M5", "A1", "A2", "A3", "A4", "A5"];
 
 export default function ScheduleGeneratorPage() {
-  const supabase = createClient();
   const [isMounted, setIsMounted] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [dataCount, setDataCount] = useState({ teachers: 0, classes: 0, rooms: 0 });
@@ -58,6 +57,7 @@ export default function ScheduleGeneratorPage() {
     setIsMounted(true);
 
     const loadRealData = async () => {
+      const supabase = createClient();
       let t: Teacher[] = [];
       let c: ClassGroup[] = [];
       let r: Room[] = [];
@@ -224,8 +224,11 @@ export default function ScheduleGeneratorPage() {
       };
     });
 
-    localStorage.setItem("edutime_timetable_entries_v1", JSON.stringify(entries));
+    if (typeof window !== "undefined") {
+      localStorage.setItem("edutime_timetable_entries_v1", JSON.stringify(entries));
+    }
 
+    const supabase = createClient();
     if (supabase && entries.length > 0) {
       try {
         await supabase.from("timetable_entries").delete().neq("id", "00000000-0000-0000-0000-000000000000");
@@ -245,13 +248,19 @@ export default function ScheduleGeneratorPage() {
 
     setIsGenerating(false);
     
-    // Forçage de l'affichage de la confirmation visuelle et par alerte
     setTimeout(() => {
       alert(confirmationText);
     }, 100);
   };
 
-  if (!isMounted) return <div className="p-8 text-xs text-slate-400">Chargement...</div>;
+  // Bloque le rendu pendant le Server Side Rendering pour éliminer l'erreur 418
+  if (!isMounted) {
+    return (
+      <div className="p-8 text-xs text-slate-400 flex items-center justify-center min-h-[400px]">
+        <Clock className="size-5 animate-spin mr-2 text-emerald-400" /> Chargement du moteur...
+      </div>
+    );
+  }
 
   return (
     <div className="p-8 space-y-6 max-w-7xl mx-auto">
