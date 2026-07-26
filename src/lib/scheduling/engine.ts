@@ -56,13 +56,14 @@ export function checkOverlap(slotA: { start: string; end: string }, slotB: { sta
 
 const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
 const SLOTS_PER_DAY = 10; // M1 à M5 (matin), A1 à A5 (après-midi)
-const MAX_ITERATIONS = 50000; // Bloque la récursivité infinie
+const MAX_TIME_MS = 8000; // Le moteur a 8 secondes maximum pour trouver la meilleure solution
 
 export class SchedulingEngine {
   private timetable: ScheduleItem[] = [];
   private iterations = 0;
   private bestTimetable: ScheduleItem[] = [];
   private maxPlacedCount = 0;
+  private startTime = 0; // Chronomètre d'exécution
 
   // 1. Sanity Check : Est-ce mathématiquement possible ?
   private runSanityCheck(courses: CourseRequest[], teacherAvailabilities: Record<string, number>): string | null {
@@ -126,13 +127,15 @@ export class SchedulingEngine {
   private solve(courses: CourseRequest[], index: number): boolean {
     this.iterations++;
 
+    // Condition de réussite totale
     if (index === courses.length) {
       this.bestTimetable = [...this.timetable];
       this.maxPlacedCount = this.timetable.length;
       return true;
     }
 
-    if (this.iterations > MAX_ITERATIONS) {
+    // Arrêt d'urgence basé sur le temps (8 secondes)
+    if (performance.now() - this.startTime > MAX_TIME_MS) {
       if (this.timetable.length > this.maxPlacedCount) {
         this.maxPlacedCount = this.timetable.length;
         this.bestTimetable = [...this.timetable];
@@ -161,11 +164,12 @@ export class SchedulingEngine {
 
           this.timetable.push(...placementsToAdd);
 
+          // Appel récursif pour le prochain cours
           if (this.solve(courses, index + 1)) {
             return true;
           }
 
-          // Backtrack : Retirer les éléments ajoutés
+          // Backtrack : Retirer les éléments ajoutés et tester un autre créneau
           for (let i = 0; i < currentCourse.duration; i++) {
             this.timetable.pop();
           }
@@ -177,7 +181,7 @@ export class SchedulingEngine {
 
   // Méthode principale async pour l'UI
   async generate(courses: CourseRequest[] = [], teacherAvailabilities: Record<string, number> = {}): Promise<ScheduleGenerationResult> {
-    const startTime = performance.now();
+    const startGenerationTime = performance.now();
     this.timetable = [];
     this.iterations = 0;
     this.bestTimetable = [];
@@ -198,13 +202,16 @@ export class SchedulingEngine {
         success: false,
         message: sanityError,
         schedule: [],
-        stats: { total_hours_required: courses.length, total_hours_assigned: 0, assignment_percentage: 0, generation_time_ms: Math.round(performance.now() - startTime) }
+        stats: { total_hours_required: courses.length, total_hours_assigned: 0, assignment_percentage: 0, generation_time_ms: Math.round(performance.now() - startGenerationTime) }
       };
     }
 
     const sortedCourses = this.sortCoursesByDifficulty(courses);
+    
+    // Initialisation du chronomètre juste avant de lancer l'exploration
+    this.startTime = performance.now();
     const isSuccess = this.solve(sortedCourses, 0);
-    const endTime = performance.now();
+    const endGenerationTime = performance.now();
 
     // Calcul des statistiques
     const totalRequired = courses.reduce((acc, curr) => acc + curr.duration, 0);
@@ -218,7 +225,7 @@ export class SchedulingEngine {
         total_hours_required: totalRequired,
         total_hours_assigned: totalAssigned,
         assignment_percentage: percentage,
-        generation_time_ms: Math.round(endTime - startTime),
+        generation_time_ms: Math.round(endGenerationTime - startGenerationTime),
       },
     };
   }
