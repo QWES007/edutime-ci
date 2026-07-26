@@ -12,16 +12,16 @@ interface Teacher {
   id: string;
   name: string;
   subjects: string[];
-  maxHoursPerWeek: number; // Volume horaire hebdomadaire maximum
-  grade: number;           // Grade (1 à 5) pour la priorisation second/premier cycle
+  maxHoursPerHeader: number;
+  maxHoursPerWeek: number;
+  grade: number;
 }
 
 export default function TeachersPage() {
   const supabase = createClient();
-  const [teachers, setTeachers] = useState<Teacher[]>([]); // 🔧 Correction ici
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [isUploading, setIsUploading] = useState(false);
 
-  // Charger les enseignants depuis Supabase
   const fetchTeachers = async () => {
     if (!supabase) return;
     const { data, error } = await supabase.from("teachers").select("*");
@@ -40,7 +40,6 @@ export default function TeachersPage() {
     fetchTeachers();
   }, []);
 
-  // 📂 Importation Excel avec prise en compte du Volume Horaire et du Grade
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !supabase) return;
@@ -64,7 +63,6 @@ export default function TeachersPage() {
           unavailabilities: {}
         }));
 
-        // Insertion dans Supabase
         const { error } = await supabase.from("teachers").insert(formattedTeachers);
         if (error) throw error;
 
@@ -104,7 +102,6 @@ export default function TeachersPage() {
         </label>
       </div>
 
-      {/* Tableau d'affichage */}
       <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-900/30">
         <table className="w-full text-left text-xs text-slate-300">
           <thead className="bg-slate-900 text-slate-400 uppercase text-[10px]">
@@ -134,4 +131,4 @@ export default function TeachersPage() {
       </div>
     </div>
   );
-}-
+}
